@@ -9,11 +9,13 @@ services:
     environment:
       - DB=postgres12
       - POSTGRES_SEEDS=postgres
+      - POSTGRES_PORT=5432
       - POSTGRES_USER=temporal
       - POSTGRES_PWD=temporal
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   temporal-ui:
     image: temporalio/ui:2.27.0
@@ -35,6 +37,12 @@ services:
       POSTGRES_DB: temporal
     expose:
       - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   worker:
     build:
@@ -49,4 +57,5 @@ services:
     volumes:
       - ./data:/app/data
     depends_on:
-      - temporal
+      temporal:
+        condition: service_started
