@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":  # pragma: no cover
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
 from incident_copilot.core.settings import settings
