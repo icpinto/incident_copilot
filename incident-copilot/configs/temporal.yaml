@@ -1,3 +1,0 @@
-host: localhost:7233
-namespace: default
-task_queue: incident-copilot
