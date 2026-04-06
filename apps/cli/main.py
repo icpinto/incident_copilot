@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+
+if __package__ is None or __package__ == "":  # pragma: no cover
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
 from incident_copilot.core.settings import settings
