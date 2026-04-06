@@ -27,12 +27,24 @@ class Settings(BaseSettings):
     top_k_candidates: int = Field(default=10, ge=1)
     deep_analysis_top_n: int = Field(default=5, ge=1)
 
+    def model_post_init(self, __context: object) -> None:
+        project_root = Path(__file__).resolve().parents[3]
+        self.data_dir = self._normalize_path(self.data_dir, project_root)
+        self.index_db_path = self._normalize_path(self.index_db_path, project_root)
+
+    @staticmethod
+    def _normalize_path(path_value: Path, project_root: Path) -> Path:
+        expanded = path_value.expanduser()
+        return expanded if expanded.is_absolute() else (project_root / expanded)
+
     def ensure_directories(self) -> None:
         (self.data_dir / "indexes").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "incidents").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "reports").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "temp_worktrees").mkdir(parents=True, exist_ok=True)
         self.index_db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.index_db_path.exists() and self.index_db_path.is_dir():
+            raise ValueError(f"index_db_path must be a file path, not a directory: {self.index_db_path}")
 
 
 settings = Settings()
