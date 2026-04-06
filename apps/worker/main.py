@@ -29,8 +29,8 @@ except Exception as exc:  # pragma: no cover
 
 
 async def main() -> None:
-    max_attempts = 10
-    retry_delay_seconds = 2
+    max_attempts = settings.temporal_connect_max_attempts
+    retry_delay_seconds = settings.temporal_connect_retry_delay_seconds
     for attempt in range(1, max_attempts + 1):
         try:
             client = await Client.connect(settings.temporal_host, namespace=settings.temporal_namespace)
