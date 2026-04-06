@@ -56,6 +56,14 @@ Or using pip:
 pip install -e ".[dev,api,temporal,llm,parsing]"
 ```
 
+Per-service requirements files are also available:
+
+```bash
+pip install -r apps/cli/requirements.txt
+pip install -r apps/api/requirements.txt
+pip install -r apps/worker/requirements.txt
+```
+
 ### 2) Start Temporal + worker locally
 
 A dev compose file is included for Temporal, Postgres, Temporal UI, and the Incident Copilot worker:
