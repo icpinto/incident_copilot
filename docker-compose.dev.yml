@@ -12,10 +12,12 @@ services:
       - DB_PORT=5432
       - POSTGRES_USER=temporal
       - POSTGRES_PWD=temporal
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/config/dynamicconfig/development.yaml
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./configs/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
 
   temporal-ui:
     image: temporalio/ui:2.27.0
