@@ -1,0 +1,3 @@
+# Minimal dynamic config for local development.
+# Temporal requires this file to exist when DYNAMIC_CONFIG_FILE_PATH is set.
+{}
