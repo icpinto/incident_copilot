@@ -31,5 +31,5 @@ services:
       POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal
       POSTGRES_DB: temporal
-    ports:
-      - "5433:5432"
+    expose:
+      - "5432"
