@@ -56,15 +56,15 @@ Or using pip:
 pip install -e ".[dev,api,temporal,llm,parsing]"
 ```
 
-### 2) Start Temporal locally
+### 2) Start Temporal + worker locally
 
-A dev compose file is included:
+A dev compose file is included for Temporal, Postgres, Temporal UI, and the Incident Copilot worker:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-### 3) Run the worker
+### 3) (Optional) Run the worker manually instead
 
 ```bash
 python apps/worker/main.py

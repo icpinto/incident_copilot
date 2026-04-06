@@ -33,3 +33,18 @@ services:
       POSTGRES_DB: temporal
     expose:
       - "5432"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: incident-copilot-worker
+    command: python apps/worker/main.py
+    environment:
+      IC_TEMPORAL_HOST: temporal:7233
+      IC_TEMPORAL_NAMESPACE: default
+      IC_TEMPORAL_TASK_QUEUE: incident-copilot
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - temporal
