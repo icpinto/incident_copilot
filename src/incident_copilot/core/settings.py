@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     temporal_host: str = "temporal:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "incident-copilot"
+    temporal_connect_max_attempts: int = Field(default=60, ge=1)
+    temporal_connect_retry_delay_seconds: int = Field(default=2, ge=1)
 
     llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
