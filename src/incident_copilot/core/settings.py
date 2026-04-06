@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     index_db_path: Path = Path("./data/indexes/repo_index.db")
 
-    temporal_host: str = "localhost:7233"
+    temporal_host: str = "temporal:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "incident-copilot"
 
