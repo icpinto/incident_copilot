@@ -1,7 +1,10 @@
-.PHONY: worker api cli temporal test fmt lint reindex
+.PHONY: worker worker-docker api cli temporal test fmt lint reindex
 
 worker:
 	python apps/worker/main.py
+
+worker-docker:
+	docker compose -f docker-compose.dev.yml up -d worker
 
 api:
 	uvicorn apps.api.main:app --reload --port 8080
