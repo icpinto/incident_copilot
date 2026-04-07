@@ -1,4 +1,7 @@
 from pathlib import Path
+import tempfile
+import warnings
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,6 +41,21 @@ class Settings(BaseSettings):
         return expanded if expanded.is_absolute() else (project_root / expanded)
 
     def ensure_directories(self) -> None:
+        try:
+            self._ensure_directories_once()
+        except OSError:
+            fallback_root = Path(tempfile.gettempdir()) / "incident-copilot"
+            self.data_dir = fallback_root
+            self.index_db_path = fallback_root / "indexes" / "repo_index.db"
+            warnings.warn(
+                f"Configured data directory is not writable. Falling back to {fallback_root}. "
+                "Set IC_INDEX_DB_PATH to override this location.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            self._ensure_directories_once()
+
+    def _ensure_directories_once(self) -> None:
         (self.data_dir / "indexes").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "incidents").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "reports").mkdir(parents=True, exist_ok=True)
@@ -45,6 +63,7 @@ class Settings(BaseSettings):
         self.index_db_path.parent.mkdir(parents=True, exist_ok=True)
         if self.index_db_path.exists() and self.index_db_path.is_dir():
             raise ValueError(f"index_db_path must be a file path, not a directory: {self.index_db_path}")
+        self.index_db_path.touch(exist_ok=True)
 
 
 settings = Settings()

@@ -22,3 +22,20 @@ def test_directory_index_db_path_raises_on_ensure_directories(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="must be a file path"):
         app_settings.ensure_directories()
+
+
+def test_ensure_directories_falls_back_when_configured_path_is_unwritable(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_settings = Settings(data_dir=Path("/unlikely"), index_db_path=Path("/unlikely/repo.db"))
+    calls = {"count": 0}
+
+    def fail_once() -> None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("readonly")
+
+    monkeypatch.setattr(app_settings, "_ensure_directories_once", fail_once)
+    with pytest.warns(RuntimeWarning, match="Falling back"):
+        app_settings.ensure_directories()
+
+    assert "incident-copilot" in str(app_settings.data_dir)
+    assert "repo_index.db" in str(app_settings.index_db_path)
