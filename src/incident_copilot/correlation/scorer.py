@@ -1,8 +1,16 @@
+from pathlib import Path
+
 from incident_copilot.schemas.index import FileRecord
 from incident_copilot.schemas.logs import ParsedLog
 
+from .locations import stack_path_match
 
-def score_file(record: FileRecord, parsed_log: ParsedLog) -> tuple[float, list[str]]:
+
+def score_file(
+    record: FileRecord,
+    parsed_log: ParsedLog,
+    repo_root: Path | None = None,
+) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
     path_lower = record.file_path.lower()
@@ -12,13 +20,34 @@ def score_file(record: FileRecord, parsed_log: ParsedLog) -> tuple[float, list[s
             score += 8.0
             reasons.append(f"service match: {service}")
 
-    for frame in parsed_log.stack_frames:
-        if frame.file_path and frame.file_path.split("/")[-1].lower() in path_lower:
-            score += 10.0
-            reasons.append(f"stack frame file match: {frame.file_path}")
-        if frame.function_name and any(s.name == frame.function_name for s in record.symbols):
-            score += 12.0
-            reasons.append(f"stack frame function match: {frame.function_name}")
+    matches = [
+        (stack_path_match(record.file_path, frame.file_path, repo_root), frame)
+        for frame in parsed_log.stack_frames
+    ]
+    if matches:
+        quality, frame = max(matches, key=lambda item: item[0])
+        if quality[0]:
+            label, bonus = {
+                3: ("exact path", 32.0),
+                2: ("path suffix", 22.0),
+                1: ("basename", 6.0),
+            }[quality[0]]
+            score += bonus
+            reasons.append(f"stack frame {label} match: {frame.file_path}")
+    # Count a signal once even when a traceback repeats the same frame.
+    function_match = next(
+        (
+            frame.function_name
+            for quality, frame in matches
+            if (quality[0] or not frame.file_path)
+            and frame.function_name
+            and any(symbol.name == frame.function_name for symbol in record.symbols)
+        ),
+        None,
+    )
+    if function_match:
+        score += 12.0
+        reasons.append(f"stack frame function match: {function_match}")
 
     for exc in parsed_log.exception_types:
         if exc.lower().replace("error", "") in path_lower:

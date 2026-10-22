@@ -1,40 +1,55 @@
 from pathlib import Path
-from typing import List
 
+from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.candidates import CandidateLocation, CandidateSet
 from incident_copilot.tools.file_reader import read_snippet
 
-from incident_copilot.indexing.storage import IndexStorage
+from .locations import select_stack_location
 from .log_parser import parse_logs
 from .scorer import score_file
 
 
-def rank_candidates(repo_root: Path, index_db_path: Path, log_text: str, top_k: int = 10, user_hint_service: str | None = None) -> tuple[CandidateSet, object]:
+def rank_candidates(
+    repo_root: Path,
+    index_db_path: Path,
+    log_text: str,
+    top_k: int = 10,
+    user_hint_service: str | None = None,
+) -> tuple[CandidateSet, object]:
     storage = IndexStorage(index_db_path)
     parsed_log = parse_logs(log_text)
     if user_hint_service and user_hint_service not in parsed_log.services:
         parsed_log.services.insert(0, user_hint_service)
-    ranked: List[CandidateLocation] = []
+    ranked: list[CandidateLocation] = []
     for record in storage.get_file_records():
-        score, reasons = score_file(record, parsed_log)
+        score, reasons = score_file(record, parsed_log, repo_root)
         if score <= 0:
             continue
-        symbol_name = record.symbols[0].name if record.symbols else None
-        line_start = record.symbols[0].line_start if record.symbols else None
-        line_end = record.symbols[0].line_end if record.symbols else None
-        abs_path = repo_root / record.file_path
-        snippet = read_snippet(abs_path, line_start, line_end) if abs_path.exists() else None
+        frame, symbol = select_stack_location(record, parsed_log.stack_frames, repo_root)
+        symbol_name = symbol.name if symbol else None
+        line_start = symbol.line_start if symbol else None
+        line_end = symbol.line_end if symbol else None
+        if symbol is None and frame and frame.line_number and frame.line_number > 0:
+            line_start = max(1, frame.line_number - 5)
+            line_end = frame.line_number + 5
         ranked.append(
             CandidateLocation(
                 file_path=record.file_path,
                 symbol_name=symbol_name,
-                service_name=next((s for s in parsed_log.services if s in record.service_hints), record.service_hints[0] if len(record.service_hints) == 1 else None),
+                service_name=next(
+                    (s for s in parsed_log.services if s in record.service_hints),
+                    record.service_hints[0] if len(record.service_hints) == 1 else None,
+                ),
                 score=round(score, 2),
                 reasons=reasons[:10],
-                snippet=snippet,
                 line_start=line_start,
                 line_end=line_end,
             )
         )
     ranked.sort(key=lambda x: x.score, reverse=True)
-    return CandidateSet(items=ranked[:top_k]), parsed_log
+    selected = ranked[:top_k]
+    for candidate in selected:
+        path = repo_root / candidate.file_path
+        if path.is_file():
+            candidate.snippet = read_snippet(path, candidate.line_start, candidate.line_end)
+    return CandidateSet(items=selected), parsed_log

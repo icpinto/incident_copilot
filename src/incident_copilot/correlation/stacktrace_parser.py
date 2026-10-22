@@ -1,14 +1,16 @@
 import re
-from typing import List
 
 from incident_copilot.schemas.logs import StackFrame
 
 PY_FRAME_RE = re.compile(r'File "([^"]+)", line (\d+), in ([A-Za-z0-9_<>]+)')
-GENERIC_PATH_RE = re.compile(r'([A-Za-z0-9_\-./]+(?:\.py|\.ts|\.tsx|\.js|\.go|\.java))(?::(\d+))?')
+GENERIC_PATH_RE = re.compile(
+    r"((?:[A-Za-z]:)?[A-Za-z0-9_\-./\\]+\.(?:tsx|jsx|py|ts|js|go|java))"
+    r"(?::(\d+))?(?::\d+)?(?![\w.])"
+)
 
 
-def parse_stack_frames(text: str) -> List[StackFrame]:
-    frames: List[StackFrame] = []
+def parse_stack_frames(text: str) -> list[StackFrame]:
+    frames: list[StackFrame] = []
     for line in text.splitlines():
         py = PY_FRAME_RE.search(line)
         if py:

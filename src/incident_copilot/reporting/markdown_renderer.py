@@ -5,17 +5,15 @@ from incident_copilot.schemas.diagnosis import DiagnosisReport
 
 def render_markdown(report: DiagnosisReport, output_path: Path | None = None) -> str:
     parts = [
-        f"# Incident Diagnosis Report",
-        f"",
+        "# Incident Diagnosis Report",
+        "",
         f"- Incident ID: `{report.incident_id}`",
         f"- Likely service: `{report.likely_service or 'unknown'}`",
         f"- Likely error class: `{report.likely_error_class or 'unknown'}`",
-        f"",
-        f"## Summary",
-        report.summary,
-        f"",
-        f"## Top Candidates",
     ]
+    if report.fallback_reason:
+        parts.append(f"- Fallback reason: `{report.fallback_reason}`")
+    parts.extend(["", "## Summary", report.summary, "", "## Top Candidates"])
     for c in report.candidates:
         parts.extend(
             [

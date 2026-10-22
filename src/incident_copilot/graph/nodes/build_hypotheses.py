@@ -1,14 +1,18 @@
 import json
-from typing import Any, Dict, List
+import logging
+from typing import Any
+
+from pydantic import ValidationError
 
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
-from incident_copilot.llm.structured_output import try_parse_json
-from incident_copilot.schemas.diagnosis import Hypothesis
+from incident_copilot.llm.structured_output import HypothesesResponse
+
+logger = logging.getLogger(__name__)
 
 
-def _fallback_hypotheses(state: DiagnosisState) -> List[Dict[str, Any]]:
+def _fallback_hypotheses(state: DiagnosisState) -> list[dict[str, Any]]:
     parsed = state.get("parsed_log", {})
     candidates = state.get("candidates", [])
     if not candidates:
@@ -19,7 +23,10 @@ def _fallback_hypotheses(state: DiagnosisState) -> List[Dict[str, Any]]:
                 "explanation": "The system could not localize the incident to a specific file with confidence.",
                 "evidence": parsed.get("error_lines", [])[:3],
                 "confidence": 0.15,
-                "next_checks": ["Provide a fuller stack trace", "Specify the failing service explicitly"],
+                "next_checks": [
+                    "Provide a fuller stack trace",
+                    "Specify the failing service explicitly",
+                ],
             }
         ]
     top = candidates[0]
@@ -40,14 +47,16 @@ def _fallback_hypotheses(state: DiagnosisState) -> List[Dict[str, Any]]:
 
 async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:
     state["engine"] = "deterministic"
+    state["fallback_reason"] = None
     parsed = state.get("parsed_log", {})
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
     if not candidates:
+        state["fallback_reason"] = "no_candidates"
         state["hypotheses"] = _fallback_hypotheses(state)
         return state
 
-    client = get_client(runtime_settings)
+    response_schema = HypothesesResponse.model_json_schema()
     prompt = DIAGNOSIS_USER_TEMPLATE.format(
         log_summary=json.dumps(
             {
@@ -60,15 +69,28 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
         ),
         candidate_summary=json.dumps(candidates, indent=2),
         deep_analysis=json.dumps(deep_analysis, indent=2),
+        response_schema=json.dumps(response_schema, indent=2),
     )
     try:
-        text = await client.complete(prompt=prompt, system_prompt=DIAGNOSIS_SYSTEM_PROMPT)
-        data = try_parse_json(text)
-        hypotheses = data.get("hypotheses") if isinstance(data, dict) else data
-        if not isinstance(hypotheses, list) or not hypotheses:
-            raise ValueError("No valid hypotheses returned")
-        state["hypotheses"] = [Hypothesis.model_validate(item).model_dump() for item in hypotheses]
-        state["engine"] = "deterministic+llm"
-    except Exception:
+        client = get_client(runtime_settings)
+        text = await client.complete(
+            prompt=prompt,
+            system_prompt=DIAGNOSIS_SYSTEM_PROMPT,
+            response_schema=response_schema,
+        )
+    except Exception:  # noqa: BLE001 -- Provider failures must preserve deterministic diagnosis.
+        # Exception messages may contain credentials, prompts, or response bodies.
+        logger.warning("LLM diagnosis fallback: llm_request_failed")
+        state["fallback_reason"] = "llm_request_failed"
         state["hypotheses"] = _fallback_hypotheses(state)
+        return state
+    try:
+        response = HypothesesResponse.model_validate_json(text, strict=True)
+    except ValidationError:
+        logger.warning("LLM diagnosis fallback: llm_invalid_response")
+        state["fallback_reason"] = "llm_invalid_response"
+        state["hypotheses"] = _fallback_hypotheses(state)
+    else:
+        state["hypotheses"] = [item.model_dump() for item in response.hypotheses]
+        state["engine"] = "deterministic+llm"
     return state

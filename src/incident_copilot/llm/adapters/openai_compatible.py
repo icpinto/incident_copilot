@@ -7,7 +7,13 @@ class OpenAICompatibleClient:
         self.api_key = api_key
         self.model = model
 
-    async def complete(self, prompt: str, system_prompt: str | None = None) -> str:
+    async def complete(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        *,
+        response_schema: dict | None = None,
+    ) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         payload = {
             "model": self.model,
@@ -15,10 +21,21 @@ class OpenAICompatibleClient:
                 {"role": "system", "content": system_prompt or ""},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.1,
+            "temperature": 0,
         }
+        if response_schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "incident_diagnosis",
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            }
         async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+            response = await client.post(
+                f"{self.base_url}/chat/completions", json=payload, headers=headers
+            )
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]

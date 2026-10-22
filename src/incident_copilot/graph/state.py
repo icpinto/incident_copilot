@@ -1,14 +1,15 @@
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class DiagnosisState(TypedDict, total=False):
     incident_id: str
-    parsed_log: Dict[str, Any]
-    candidates: List[Dict[str, Any]]
-    deep_analysis: Dict[str, Any]
-    hypotheses: List[Dict[str, Any]]
-    likely_service: Optional[str]
-    likely_error_class: Optional[str]
+    parsed_log: dict[str, Any]
+    candidates: list[dict[str, Any]]
+    deep_analysis: dict[str, Any]
+    hypotheses: list[dict[str, Any]]
+    likely_service: str | None
+    likely_error_class: str | None
     summary: str
     engine: str
+    fallback_reason: str | None
     candidate_limit: int
