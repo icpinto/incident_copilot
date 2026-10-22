@@ -5,6 +5,7 @@ from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
 from incident_copilot.llm.structured_output import try_parse_json
+from incident_copilot.schemas.diagnosis import Hypothesis
 
 
 def _fallback_hypotheses(state: DiagnosisState) -> List[Dict[str, Any]]:
@@ -37,7 +38,8 @@ def _fallback_hypotheses(state: DiagnosisState) -> List[Dict[str, Any]]:
     ]
 
 
-async def build_hypotheses_node(state: DiagnosisState) -> DiagnosisState:
+async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:
+    state["engine"] = "deterministic"
     parsed = state.get("parsed_log", {})
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
@@ -45,7 +47,7 @@ async def build_hypotheses_node(state: DiagnosisState) -> DiagnosisState:
         state["hypotheses"] = _fallback_hypotheses(state)
         return state
 
-    client = get_client()
+    client = get_client(runtime_settings)
     prompt = DIAGNOSIS_USER_TEMPLATE.format(
         log_summary=json.dumps(
             {
@@ -62,12 +64,11 @@ async def build_hypotheses_node(state: DiagnosisState) -> DiagnosisState:
     try:
         text = await client.complete(prompt=prompt, system_prompt=DIAGNOSIS_SYSTEM_PROMPT)
         data = try_parse_json(text)
-        if isinstance(data, dict) and isinstance(data.get("hypotheses"), list):
-            state["hypotheses"] = data["hypotheses"]
-        elif isinstance(data, list):
-            state["hypotheses"] = data
-        else:
-            state["hypotheses"] = _fallback_hypotheses(state)
+        hypotheses = data.get("hypotheses") if isinstance(data, dict) else data
+        if not isinstance(hypotheses, list) or not hypotheses:
+            raise ValueError("No valid hypotheses returned")
+        state["hypotheses"] = [Hypothesis.model_validate(item).model_dump() for item in hypotheses]
+        state["engine"] = "deterministic+llm"
     except Exception:
         state["hypotheses"] = _fallback_hypotheses(state)
     return state

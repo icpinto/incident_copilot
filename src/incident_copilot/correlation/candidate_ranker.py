@@ -9,9 +9,11 @@ from .log_parser import parse_logs
 from .scorer import score_file
 
 
-def rank_candidates(repo_root: Path, index_db_path: Path, log_text: str, top_k: int = 10) -> tuple[CandidateSet, object]:
+def rank_candidates(repo_root: Path, index_db_path: Path, log_text: str, top_k: int = 10, user_hint_service: str | None = None) -> tuple[CandidateSet, object]:
     storage = IndexStorage(index_db_path)
     parsed_log = parse_logs(log_text)
+    if user_hint_service and user_hint_service not in parsed_log.services:
+        parsed_log.services.insert(0, user_hint_service)
     ranked: List[CandidateLocation] = []
     for record in storage.get_file_records():
         score, reasons = score_file(record, parsed_log)
@@ -26,7 +28,7 @@ def rank_candidates(repo_root: Path, index_db_path: Path, log_text: str, top_k: 
             CandidateLocation(
                 file_path=record.file_path,
                 symbol_name=symbol_name,
-                service_name=record.service_hints[0] if record.service_hints else None,
+                service_name=next((s for s in parsed_log.services if s in record.service_hints), record.service_hints[0] if len(record.service_hints) == 1 else None),
                 score=round(score, 2),
                 reasons=reasons[:10],
                 snippet=snippet,

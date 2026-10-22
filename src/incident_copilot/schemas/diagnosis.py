@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .candidates import CandidateLocation
 
@@ -9,7 +9,7 @@ class Hypothesis(BaseModel):
     title: str
     explanation: str
     evidence: List[str]
-    confidence: float
+    confidence: float = Field(ge=0, le=1)
     next_checks: List[str]
 
 

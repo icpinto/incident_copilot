@@ -51,6 +51,14 @@ class IndexStorage:
                 ("repo_root", str(repo_root)),
             )
 
+    def replace_snapshot(self, repo_root: Path, services, files) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM services")
+            conn.execute("DELETE FROM files")
+            conn.execute("INSERT OR REPLACE INTO metadata VALUES ('repo_root', ?)", (str(repo_root),))
+            conn.executemany("INSERT INTO services VALUES (?,?)", [(s.service_name, s.model_dump_json()) for s in services])
+            conn.executemany("INSERT INTO files VALUES (?,?)", [(f.file_path, f.model_dump_json()) for f in files])
+
     def save_services(self, services: Iterable[ServiceMapping]) -> None:
         with self._conn() as conn:
             for service in services:

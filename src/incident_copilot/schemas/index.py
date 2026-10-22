@@ -7,7 +7,7 @@ class ServiceMapping(BaseModel):
     build_context: Optional[str] = None
     dockerfile: Optional[str] = None
     env_files: List[str] = []
-    command: Optional[str] = None
+    command: Optional[str | List[str]] = None
     image: Optional[str] = None
 
 

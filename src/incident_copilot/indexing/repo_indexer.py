@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Iterator, List
 
@@ -21,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 def _iter_repo_files(repo_root: Path) -> Iterator[Path]:
-    for path in repo_root.rglob("*"):
-        if not path.is_file():
-            continue
-        if ".git" in path.parts or "node_modules" in path.parts or "__pycache__" in path.parts:
-            continue
-        if path.suffix.lower() in SUPPORTED_CODE_EXTENSIONS:
-            yield path
+    ignored = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", "coverage", ".next", ".tox"}
+    for directory, subdirectories, filenames in os.walk(repo_root):
+        subdirectories[:] = [name for name in subdirectories if name not in ignored and not name.endswith(".egg-info")]
+        for filename in filenames:
+            path = Path(directory) / filename
+            if path.suffix.lower() in SUPPORTED_CODE_EXTENSIONS and not path.is_symlink():
+                yield path
 
 
 def _language_for(path: Path) -> str | None:
@@ -47,9 +48,7 @@ def _language_for(path: Path) -> str | None:
 
 def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) -> RepoIndexSummary:
     storage = IndexStorage(db_path)
-    storage.save_repo_root(repo_root)
     services = build_service_map(repo_root, compose_path)
-    storage.save_services(services)
 
     tree_sitter = TreeSitterFacade()
     logger.info("tree_sitter_available=%s", tree_sitter.available)
@@ -75,7 +74,7 @@ def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) 
         service_hints = [
             s.service_name
             for s in services
-            if s.build_context and rel_path.startswith(s.build_context.rstrip("/") + "/")
+            if s.build_context and (s.build_context == "." or rel_path.startswith(s.build_context.rstrip("/") + "/"))
         ]
 
         file_records.append(
@@ -91,5 +90,5 @@ def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) 
                 mtime=path.stat().st_mtime,
             )
         )
-    storage.save_files(file_records)
+    storage.replace_snapshot(repo_root, services, file_records)
     return storage.summary()

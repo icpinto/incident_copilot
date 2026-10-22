@@ -37,8 +37,117 @@ This repository is a working scaffold and MVP:
 - LangGraph diagnosis graph included
 - local LLM adapters included (Ollama and OpenAI-compatible endpoints)
 - optional Tree-sitter integration with safe fallback to regex/light parsing
+- React operations dashboard with saved incident history, evidence views, and configuration
+- durable dashboard submissions and progress tracking through Temporal
+- repository profiles, worker-side path validation, and isolated indexes for each dashboard run
 
 It is designed to be extended, not treated as finished enterprise software.
+
+## Dashboard quick start
+
+With Docker Desktop running:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build -d
+```
+
+Open **http://localhost:8080**. The React app is built into the API image. Temporal UI
+is available at http://localhost:8233.
+
+1. Open **Repositories**, add a profile, and validate worker access.
+2. The project directory is mounted read-only at `/repositories` by default. Use
+   `/repositories` as the profile path and `docker-compose.dev.yml` as its Compose file
+   to analyze this project. Set `IC_REPOSITORIES_DIR` before starting Compose to mount
+   another source directory there instead.
+3. Open **Configuration** to select the LLM provider/model and tune analysis limits.
+4. Start **New analysis**, choose a repository, and paste or load error logs.
+5. Follow activity stages, inspect hypotheses and source evidence, and export the report.
+
+The dashboard starts empty and calculates all metrics from saved incidents. LLM
+failures fall back to deterministic diagnosis, with the actual engine shown in the report.
+
+### Run the dashboard on the host
+
+Install Python dependencies as described below, and use Node.js **22.12 or newer**:
+
+```bash
+cd apps/web
+npm ci
+npm run build
+cd ../..
+```
+
+Start Temporal, set `IC_TEMPORAL_HOST=localhost:7233` in the environment of **both**
+the API and worker, and start each in a separate terminal:
+
+```bash
+python apps/worker/main.py
+uvicorn apps.api.main:app --host 127.0.0.1 --port 8080
+```
+
+Open http://localhost:8080. For frontend development, run `npm run dev` from
+`apps/web` and open http://localhost:5173; Vite proxies API requests to port 8080.
+When the worker runs on the host, repository profiles use host filesystem paths.
+
+### Configuration and persistence
+
+- `IC_CONTROL_DB_PATH` selects the shared SQLite control store, defaulting to
+  `data/control.db`. API and worker must use the **same file**. This bootstrap path
+  can be supplied through the environment or the project `.env` file.
+- The control store holds profiles, incident inputs/results, and immutable settings
+  revisions, including server-side credentials. Keep its directory private. Runtime
+  data, `.env`, and frontend build/dependency outputs are excluded from Git.
+- Saved dashboard overrides take precedence over `IC_*` environment settings.
+  **Reset** removes an override and restores its environment or built-in default.
+  The YAML files in `configs/` are examples, not additional runtime settings sources.
+- LLM and analysis changes affect new runs. Application, Temporal, and artifact
+  storage changes remain pending until API and worker restart. Activation is deferred
+  while incidents are queued or running; the UI shows saved and active values.
+- Finish active runs, then use `docker compose -f docker-compose.dev.yml restart api worker`
+  to activate infrastructure changes. Restart both host processes when running locally.
+  Changing the Temporal address requires that server and namespace to exist already.
+- **Cancel analysis** stops an undispatched incident immediately or asks Temporal to
+  cancel a dispatched run. This lets you clear locally queued incidents before
+  correcting an unreachable Temporal address. Dispatched cancellations need a worker
+  to acknowledge them.
+- Each dashboard run has an isolated index below the configured index path’s parent
+  and JSON/Markdown artifacts under `IC_DATA_DIR/incidents/<id>`. Old artifacts stay
+  at their original locations when settings change. Back up the control store and
+  artifact directories together while API and worker are stopped.
+- API keys are redacted from settings responses, incident responses, and report exports.
+  Temporal dashboard payloads contain incident IDs and stage names rather than credentials.
+- Repository validation executes on the worker. LLM/storage connection checks run
+  from the API process; ensure those same endpoints and directories are reachable
+  from the worker as well.
+- The application is a trusted local console without authentication. Compose binds
+  its published ports to localhost.
+
+### Dashboard API and checks
+
+The typed `/api` endpoints cover repository profiles, incidents and exports, overview
+metrics, settings, and connection checks. `/api/incidents` accepts a repository ID,
+logs, an optional title, and service hint; it returns `202` immediately after saving.
+Unavailable Temporal services leave incidents saved and queued for automatic dispatch.
+The original `/health`, synchronous `/diagnose`, and CLI entry points remain available.
+Interactive API documentation is at `/docs`.
+
+```bash
+python -m pytest -q
+cd apps/web
+npm test
+npm run build
+```
+
+An opt-in integration test starts a real temporary Temporal dev server and checks
+worker validation, progress queries, duplicate dispatch recovery, and durable reports.
+It requires network access for the official Temporal binary on its first run:
+
+```powershell
+$env:IC_RUN_TEMPORAL_TESTS = '1'
+python -m pytest tests/test_temporal_integration.py -q
+```
+
+On POSIX shells, prefix that pytest command with `IC_RUN_TEMPORAL_TESTS=1` instead.
 
 ## Quick start
 

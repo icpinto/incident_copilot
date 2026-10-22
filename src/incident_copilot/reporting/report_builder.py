@@ -12,4 +12,5 @@ def build_report(graph_state: dict) -> DiagnosisReport:
         candidates=[CandidateLocation.model_validate(c) for c in graph_state.get("candidates", [])],
         hypotheses=[Hypothesis.model_validate(h) for h in graph_state.get("hypotheses", [])],
         summary=graph_state.get("summary", "No summary generated."),
+        engine=graph_state.get("engine", "deterministic"),
     )

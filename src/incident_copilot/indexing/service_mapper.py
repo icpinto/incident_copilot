@@ -15,7 +15,7 @@ def build_service_map(repo_root: Path, compose_path: Path | None) -> List[Servic
         if build_context and compose_path:
             bc = (compose_path.parent / build_context).resolve()
             try:
-                build_context = str(bc.relative_to(repo_root.resolve()))
+                build_context = bc.relative_to(repo_root.resolve()).as_posix()
             except Exception:
                 build_context = str(bc)
         if dockerfile and build_context:

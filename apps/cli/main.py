@@ -14,7 +14,7 @@ if __package__ is None or __package__ == "":  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
-from incident_copilot.core.settings import settings
+from incident_copilot.workflows.temporal_activities import runtime_settings
 from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.indexing.repo_indexer import index_repository
@@ -27,6 +27,7 @@ console = Console()
 
 @app.command()
 def reindex(repo_root: Path, compose_path: Path | None = None) -> None:
+    settings = runtime_settings()
     configure_logging()
     summary = index_repository(repo_root=repo_root, compose_path=compose_path, db_path=settings.index_db_path)
     console.print(summary.model_dump_json(indent=2))
@@ -41,6 +42,7 @@ def diagnose(
     output_json: Path | None = None,
     output_md: Path | None = None,
 ) -> None:
+    settings = runtime_settings()
     configure_logging()
     if not log_text and not log_file:
         raise typer.BadParameter("Provide either --log-text or --log-file")
@@ -62,7 +64,8 @@ def diagnose(
                 "parsed_log": parsed_log.model_dump(),
                 "candidates": [c.model_dump() for c in candidates.items],
                 "deep_analysis": {},
-            }
+                "candidate_limit": settings.top_k_candidates,
+            }, settings,
         )
     )
     report = build_report(state)

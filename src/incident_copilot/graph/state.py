@@ -10,3 +10,5 @@ class DiagnosisState(TypedDict, total=False):
     likely_service: Optional[str]
     likely_error_class: Optional[str]
     summary: str
+    engine: str
+    candidate_limit: int

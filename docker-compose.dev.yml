@@ -1,11 +1,9 @@
-version: "3.8"
-
 services:
   temporal:
     image: temporalio/auto-setup:1.24.2
     container_name: temporal
     ports:
-      - "7233:7233"
+      - "127.0.0.1:7233:7233"
     environment:
       - DB=postgres12
       - POSTGRES_SEEDS=postgres
@@ -23,7 +21,7 @@ services:
     image: temporalio/ui:2.27.0
     container_name: temporal-ui
     ports:
-      - "8233:8080"
+      - "127.0.0.1:8233:8080"
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
@@ -55,11 +53,44 @@ services:
       IC_TEMPORAL_HOST: temporal:7233
       IC_TEMPORAL_NAMESPACE: default
       IC_TEMPORAL_TASK_QUEUE: incident-copilot
+      IC_CONTROL_DB_PATH: /app/data/control.db
+      IC_DATA_DIR: /app/data/artifacts
+      IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db
       IC_LLM_PROVIDER: ollama
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
     volumes:
       - ./data:/app/data
+      - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
     depends_on:
       temporal:
         condition: service_started
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: incident-copilot-api
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      IC_CONTROL_DB_PATH: /app/data/control.db
+      IC_DATA_DIR: /app/data/artifacts
+      IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db
+      IC_TEMPORAL_HOST: temporal:7233
+      IC_TEMPORAL_NAMESPACE: default
+      IC_TEMPORAL_TASK_QUEUE: incident-copilot
+      IC_LLM_PROVIDER: ollama
+      IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
+    volumes:
+      - ./data:/app/data
+      - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - temporal

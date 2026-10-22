@@ -9,14 +9,16 @@ if __package__ is None or __package__ == "":  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
-from incident_copilot.core.settings import settings
+from incident_copilot.dashboard.config import Configuration, control_path, fingerprint
+from incident_copilot.dashboard.store import ControlStore, utcnow
+from incident_copilot.dashboard.activities import dashboard_stage_activity, validate_repository_activity
 from incident_copilot.workflows.temporal_activities import (
     build_service_map_and_index_activity,
     correlate_logs_activity,
     deep_analysis_activity,
     diagnosis_graph_activity,
 )
-from incident_copilot.workflows.temporal_workflows import DiagnoseIncidentWorkflow
+from incident_copilot.workflows.temporal_workflows import DiagnoseIncidentWorkflow, ValidateRepositoryWorkflow
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -29,6 +31,9 @@ except Exception as exc:  # pragma: no cover
 
 
 async def main() -> None:
+    store = ControlStore(control_path())
+    configuration = Configuration(store)
+    settings = configuration.effective()
     max_attempts = settings.temporal_connect_max_attempts
     retry_delay_seconds = settings.temporal_connect_retry_delay_seconds
     for attempt in range(1, max_attempts + 1):
@@ -50,15 +55,34 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.temporal_task_queue,
-        workflows=[DiagnoseIncidentWorkflow],
+        workflows=[DiagnoseIncidentWorkflow, ValidateRepositoryWorkflow],
         activities=[
             build_service_map_and_index_activity,
             correlate_logs_activity,
             deep_analysis_activity,
             diagnosis_graph_activity,
+            dashboard_stage_activity,
+            validate_repository_activity,
         ],
     )
-    await worker.run()
+    from uuid import uuid4
+    worker_id = str(uuid4())
+
+    async def heartbeat():
+        while True:
+            store.put("workers", worker_id, {
+                "updated_at": utcnow(), "infrastructure": fingerprint(configuration.infrastructure),
+            })
+            await asyncio.sleep(5)
+
+    pulse = asyncio.create_task(heartbeat())
+    try:
+        await worker.run()
+    finally:
+        pulse.cancel()
+        from contextlib import suppress
+        with suppress(asyncio.CancelledError):
+            await pulse
 
 
 if __name__ == "__main__":
