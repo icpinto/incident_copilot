@@ -95,15 +95,20 @@ uvicorn apps.api.main:app --reload --port 8080
 
 ## Suggested local LLM setup
 
-Use a local OpenAI-compatible endpoint or Ollama with `gpt-oss-20b`.
+Use Ollama with `llama3.1:8b` at `http://host.docker.internal:11434`.
 
 Example `.env` values:
 
 ```env
 IC_LLM_PROVIDER=ollama
-IC_OLLAMA_BASE_URL=http://localhost:11434
-IC_OLLAMA_MODEL=gpt-oss:20b
+IC_OLLAMA_BASE_URL=http://host.docker.internal:11434
+IC_OLLAMA_MODEL=llama3.1:8b
 ```
+
+The application uses the `IC_` prefix for environment variables. The Docker worker
+uses these values by default and accepts overrides from the environment or `.env`.
+When running directly on the host, set `IC_OLLAMA_BASE_URL=http://localhost:11434`
+if Ollama is listening locally.
 
 ## Project layout
 

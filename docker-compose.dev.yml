@@ -55,6 +55,9 @@ services:
       IC_TEMPORAL_HOST: temporal:7233
       IC_TEMPORAL_NAMESPACE: default
       IC_TEMPORAL_TASK_QUEUE: incident-copilot
+      IC_LLM_PROVIDER: ollama
+      IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
     volumes:
       - ./data:/app/data
     depends_on:

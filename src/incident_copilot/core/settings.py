@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     temporal_connect_retry_delay_seconds: int = Field(default=2, ge=1)
 
     llm_provider: str = "ollama"
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gpt-oss:20b"
+    ollama_base_url: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.1:8b"
     openai_compatible_base_url: str = "http://localhost:8000/v1"
     openai_compatible_model: str = "gpt-oss-20b"
     openai_compatible_api_key: str = "dummy"
