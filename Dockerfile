@@ -13,11 +13,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY apps ./apps
 
-RUN pip install --no-cache-dir -e ".[api,temporal,llm,parsing]"
+RUN pip install --no-cache-dir -e ".[api,temporal,llm,parsing,codegraph]"
 
 COPY --from=dashboard /web/dist ./apps/web/dist
 

@@ -14,6 +14,7 @@ if __package__ is None or __package__ == "":  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
+from incident_copilot.analysis.code_graph import retrieve_graph_context
 from incident_copilot.workflows.temporal_activities import runtime_settings
 from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
@@ -57,6 +58,9 @@ def diagnose(
         log_text=log_text,
         top_k=settings.top_k_candidates,
     )
+    graph_context = asyncio.run(retrieve_graph_context(
+        repo_root, settings.index_db_path, [c.model_dump() for c in candidates.items], settings,
+    ))
     state = asyncio.run(
         run_diagnosis_graph(
             {
@@ -64,6 +68,7 @@ def diagnose(
                 "parsed_log": parsed_log.model_dump(),
                 "candidates": [c.model_dump() for c in candidates.items],
                 "deep_analysis": {},
+                "graph_context": graph_context,
                 "candidate_limit": settings.top_k_candidates,
             }, settings,
         )

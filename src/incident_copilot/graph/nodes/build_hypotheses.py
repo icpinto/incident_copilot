@@ -45,17 +45,10 @@ def _fallback_hypotheses(state: DiagnosisState) -> list[dict[str, Any]]:
     ]
 
 
-async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:
-    state["engine"] = "deterministic"
-    state["fallback_reason"] = None
+def build_diagnosis_prompt(state: DiagnosisState) -> str:
     parsed = state.get("parsed_log", {})
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
-    if not candidates:
-        state["fallback_reason"] = "no_candidates"
-        state["hypotheses"] = _fallback_hypotheses(state)
-        return state
-
     response_schema = HypothesesResponse.model_json_schema()
     prompt = DIAGNOSIS_USER_TEMPLATE.format(
         log_summary=json.dumps(
@@ -69,8 +62,23 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
         ),
         candidate_summary=json.dumps(candidates, indent=2),
         deep_analysis=json.dumps(deep_analysis, indent=2),
+        graph_context=json.dumps(state.get("graph_context"), indent=2),
         response_schema=json.dumps(response_schema, indent=2),
     )
+    return prompt
+
+
+async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:
+    state["engine"] = "deterministic"
+    state["fallback_reason"] = None
+    candidates = state.get("candidates", [])
+    if not candidates:
+        state["fallback_reason"] = "no_candidates"
+        state["hypotheses"] = _fallback_hypotheses(state)
+        return state
+
+    response_schema = HypothesesResponse.model_json_schema()
+    prompt = build_diagnosis_prompt(state)
     try:
         client = get_client(runtime_settings)
         text = await client.complete(

@@ -6,6 +6,7 @@ class DiagnosisState(TypedDict, total=False):
     parsed_log: dict[str, Any]
     candidates: list[dict[str, Any]]
     deep_analysis: dict[str, Any]
+    graph_context: dict[str, Any] | None
     hypotheses: list[dict[str, Any]]
     likely_service: str | None
     likely_error_class: str | None

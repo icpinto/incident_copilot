@@ -51,11 +51,12 @@ class IndexStorage:
                 ("repo_root", str(repo_root)),
             )
 
-    def replace_snapshot(self, repo_root: Path, services, files) -> None:
+    def replace_snapshot(self, repo_root: Path, services, files, repo_revision: str | None = None) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM services")
             conn.execute("DELETE FROM files")
             conn.execute("INSERT OR REPLACE INTO metadata VALUES ('repo_root', ?)", (str(repo_root),))
+            conn.execute("INSERT OR REPLACE INTO metadata VALUES ('repo_revision', ?)", (repo_revision or "",))
             conn.executemany("INSERT INTO services VALUES (?,?)", [(s.service_name, s.model_dump_json()) for s in services])
             conn.executemany("INSERT INTO files VALUES (?,?)", [(f.file_path, f.model_dump_json()) for f in files])
 
@@ -74,6 +75,11 @@ class IndexStorage:
                     "INSERT OR REPLACE INTO files(file_path, payload) VALUES (?, ?)",
                     (file.file_path, file.model_dump_json()),
                 )
+
+    def snapshot_identity(self) -> tuple[str, str | None]:
+        with self._conn() as conn:
+            values = dict(conn.execute("SELECT key, value FROM metadata WHERE key IN ('repo_root', 'repo_revision')"))
+        return values.get("repo_root", ""), values.get("repo_revision") or None
 
     def get_services(self) -> List[ServiceMapping]:
         with self._conn() as conn:
@@ -95,6 +101,7 @@ class IndexStorage:
     def summary(self) -> RepoIndexSummary:
         with self._conn() as conn:
             repo_root_row = conn.execute("SELECT value FROM metadata WHERE key = 'repo_root'").fetchone()
+            revision_row = conn.execute("SELECT value FROM metadata WHERE key = 'repo_revision'").fetchone()
             file_count = conn.execute("SELECT COUNT(*) AS c FROM files").fetchone()["c"]
             rows = conn.execute("SELECT payload FROM files").fetchall()
             sym_count = 0
@@ -107,4 +114,5 @@ class IndexStorage:
             indexed_files=file_count,
             indexed_symbols=sym_count,
             db_path=str(self.db_path),
+            repo_revision=revision_row["value"] or None if revision_row else None,
         )

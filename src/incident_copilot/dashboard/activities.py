@@ -7,6 +7,7 @@ from pathlib import Path
 from incident_copilot.core.settings import Settings
 from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.analysis.dependency_probe import deep_analyze_candidate
+from incident_copilot.analysis.code_graph import retrieve_graph_context
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.indexing.repo_indexer import index_repository
 from incident_copilot.indexing.service_mapper import build_service_map
@@ -94,11 +95,16 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             if path.is_file():
                 results[candidate["file_path"]] = await asyncio.to_thread(deep_analyze_candidate, path)
         evidence["deep_analysis"] = results
+        if "graph_context" not in evidence:
+            evidence["graph_context"] = await retrieve_graph_context(
+                root, Path(run["index_db_path"]), evidence.get("candidates", []), config,
+            )
     elif stage == "reasoning":
         state = await run_diagnosis_graph({
             "incident_id": incident_id, "parsed_log": evidence.get("parsed_log", {}),
             "candidates": evidence.get("candidates", []), "deep_analysis": evidence.get("deep_analysis", {}),
             "candidate_limit": config.top_k_candidates,
+            "graph_context": evidence.get("graph_context"),
         }, config)
         report = build_report(state).model_dump(mode="json")
         # Redact at persistence time as well as at the HTTP boundary.

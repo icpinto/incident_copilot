@@ -2,6 +2,7 @@ from pathlib import Path
 import asyncio
 
 from incident_copilot.analysis.dependency_probe import deep_analyze_candidate
+from incident_copilot.analysis.code_graph import retrieve_graph_context
 from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.core.settings import Settings
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
@@ -62,18 +63,24 @@ async def deep_analysis_activity(repo_root: str, candidates: list[dict], runtime
         abs_path = Path(repo_root) / file_path
         if abs_path.exists():
             results[file_path] = await asyncio.to_thread(deep_analyze_candidate, abs_path)
-    return results
+    graph_context = await retrieve_graph_context(Path(repo_root), settings.index_db_path, candidates, settings)
+    # Keep the historical files-only activity result when the feature is disabled.
+    # The explicit envelope is understood by diagnosis_graph_activity on replay too.
+    return {"files": results, "graph_context": graph_context} if graph_context is not None else results
 
 
 @activity.defn
 async def diagnosis_graph_activity(incident_id: str, parsed_log: dict, candidates: list[dict], deep_analysis: dict, runtime: dict | None = None) -> dict:
     settings = runtime_settings(runtime)
+    graph_context = deep_analysis.get("graph_context") if "files" in deep_analysis else None
+    files = deep_analysis["files"] if "files" in deep_analysis else deep_analysis
     state = await run_diagnosis_graph(
         {
             "incident_id": incident_id,
             "parsed_log": parsed_log,
             "candidates": candidates,
-            "deep_analysis": deep_analysis,
+            "deep_analysis": files,
+            "graph_context": graph_context,
             "candidate_limit": settings.top_k_candidates,
         }, settings,
     )

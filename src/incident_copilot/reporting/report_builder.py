@@ -14,4 +14,5 @@ def build_report(graph_state: dict) -> DiagnosisReport:
         summary=graph_state.get("summary", "No summary generated."),
         engine=graph_state.get("engine", "deterministic"),
         fallback_reason=graph_state.get("fallback_reason"),
+        graph_context=graph_state.get("graph_context"),
     )

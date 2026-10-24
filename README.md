@@ -219,6 +219,13 @@ uses these values by default and accepts overrides from the environment or `.env
 When running directly on the host, set `IC_OLLAMA_BASE_URL=http://localhost:11434`
 if Ollama is listening locally.
 
+## Optional code graph knowledge
+
+GitNexus can enrich incident evidence with bounded static callers and callees while
+preserving deterministic candidate ranking. It runs in an optional isolated service,
+with read-only source mounts and persistent external graph storage. See
+[setup, freshness rules, and comparison workflow](docs/code-graph.md).
+
 ## Project layout
 
 - `apps/cli`: CLI entrypoint

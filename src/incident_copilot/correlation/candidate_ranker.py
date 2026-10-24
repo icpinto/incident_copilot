@@ -2,6 +2,7 @@ from pathlib import Path
 
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.candidates import CandidateLocation, CandidateSet
+from incident_copilot.schemas.logs import ParsedLog
 from incident_copilot.tools.file_reader import read_snippet
 
 from .locations import select_stack_location
@@ -15,7 +16,7 @@ def rank_candidates(
     log_text: str,
     top_k: int = 10,
     user_hint_service: str | None = None,
-) -> tuple[CandidateSet, object]:
+) -> tuple[CandidateSet, ParsedLog]:
     storage = IndexStorage(index_db_path)
     parsed_log = parse_logs(log_text)
     if user_hint_service and user_hint_service not in parsed_log.services:

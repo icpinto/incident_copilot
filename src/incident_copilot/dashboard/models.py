@@ -7,6 +7,7 @@ from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.candidates import CandidateLocation
 from incident_copilot.schemas.logs import ParsedLog
 from incident_copilot.schemas.index import RepoIndexSummary
+from incident_copilot.schemas.code_graph import GraphContext
 
 
 class RepositoryInput(BaseModel):
@@ -49,6 +50,7 @@ class IncidentEvidence(BaseModel):
     candidates: list[CandidateLocation] = Field(default_factory=list)
     deep_analysis: dict[str, Any] = Field(default_factory=dict)
     index_summary: RepoIndexSummary | None = None
+    graph_context: GraphContext | None = None
 
 
 class IncidentRecord(BaseModel):
@@ -89,6 +91,7 @@ class SettingsView(BaseModel):
     infrastructure_fields: list[str]
     control_db_path: str
     secret_configured: bool
+    graph_secret_configured: bool = False
 
 
 class ConnectionCheck(BaseModel):

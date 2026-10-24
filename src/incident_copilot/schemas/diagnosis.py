@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .candidates import CandidateLocation
+from .code_graph import GraphContext
 
 
 class Hypothesis(BaseModel):
@@ -23,3 +24,4 @@ class DiagnosisReport(BaseModel):
     summary: str
     engine: str = "deterministic+llm"
     fallback_reason: str | None = None
+    graph_context: GraphContext | None = None

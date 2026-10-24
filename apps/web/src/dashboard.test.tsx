@@ -57,6 +57,22 @@ describe('dashboard workflows', () => {
     expect(screen.getByText('TimeoutError: gateway')).toBeInTheDocument();
   });
 
+  it('shows static graph provenance and source relationships in the evidence view', async () => {
+    mockFetch(() => ({ ...run, evidence: { ...run.evidence, graph_context: {
+      provider: 'gitnexus', provider_version: '1.6.12', repository: '/repos/commerce', repo_revision: 'abc123', indexed_revision: 'abc123',
+      status: 'partial', reason: null, completeness: 'lower_bound', retrieval_ms: 12,
+      symbols: [{ uid: 'checkout', name: 'checkout', file_path: 'wrapper.py', line_start: 3 }, { uid: 'charge', name: 'charge', file_path: 'gateway.py', line_start: 1 }],
+      relationships: [{ source_uid: 'checkout', target_uid: 'charge', relationship: 'CALLS' }], seeds: [],
+    } } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    await screen.findByText('Gateway timed out');
+    await userEvent.click(screen.getByRole('tab', { name: /Source evidence/ }));
+    expect(screen.getByText('Static code graph')).toBeInTheDocument();
+    expect(screen.getByText(/checkout.*wrapper.py:3/)).toBeInTheDocument();
+    expect(screen.getByText('Revision: abc123')).toBeInTheDocument();
+    expect(screen.getByText(/runtime execution is unproven/)).toBeInTheDocument();
+  });
+
   it('shows actual retry attempts in the progress view', () => {
     view(<Pipeline run={{ ...run, status: 'running', stage: 'indexing', timeline: [{ stage: 'indexing', started_at: new Date().toISOString(), completed_at: null, attempt: 2 }] }} />);
     expect(screen.getByText('Attempt 2')).toBeInTheDocument();

@@ -58,6 +58,10 @@ services:
       IC_DATA_DIR: /app/data/artifacts
       IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db
       IC_TREE_SITTER_ENABLED: ${IC_TREE_SITTER_ENABLED:-true}
+      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-false}
+      IC_GITNEXUS_URL: http://gitnexus:3111/mcp
+      IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
+      IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
       IC_LLM_PROVIDER: ollama
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
@@ -84,6 +88,10 @@ services:
       IC_TEMPORAL_HOST: temporal:7233
       IC_TEMPORAL_NAMESPACE: default
       IC_TEMPORAL_TASK_QUEUE: incident-copilot
+      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-false}
+      IC_GITNEXUS_URL: http://gitnexus:3111/mcp
+      IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
+      IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
       IC_LLM_PROVIDER: ollama
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
@@ -97,3 +105,25 @@ services:
       retries: 5
     depends_on:
       - temporal
+
+  gitnexus:
+    profiles: [code-graph]
+    build:
+      context: .
+      dockerfile: apps/codegraph/Dockerfile
+    environment:
+      GITNEXUS_REPO_ROOT: ${IC_GITNEXUS_REPOSITORY:-/repositories}
+      GITNEXUS_MCP_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
+    ports:
+      - "127.0.0.1:3111:3111"
+    volumes:
+      - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
+      - gitnexus-state:/state
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3111/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gitnexus-state:

@@ -20,6 +20,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+codegraph = [
+  "mcp==1.30.0",
+  "sse-starlette>=2,<3",
+]
 api = [
   "fastapi>=0.111.0",
   "uvicorn>=0.30.1",

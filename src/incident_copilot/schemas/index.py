@@ -37,3 +37,4 @@ class RepoIndexSummary(BaseModel):
     indexed_files: int
     indexed_symbols: int
     db_path: str
+    repo_revision: str | None = None

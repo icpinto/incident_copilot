@@ -6,6 +6,7 @@ from pathlib import Path
 from incident_copilot.core.constants import SUPPORTED_CODE_EXTENSIONS
 from incident_copilot.schemas.index import FileRecord, RepoIndexSummary
 from incident_copilot.tools.fs_utils import safe_relative
+from incident_copilot.tools.git_local import clean_revision
 
 from .isolated_parser import IsolatedTreeSitterFacade
 from .service_mapper import build_service_map
@@ -47,6 +48,7 @@ def _language_for(path: Path) -> str | None:
 
 
 def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) -> RepoIndexSummary:
+    revision = clean_revision(repo_root)
     storage = IndexStorage(db_path)
     services = build_service_map(repo_root, compose_path)
 
@@ -95,7 +97,9 @@ def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) 
             )
             if len(file_records) % 100 == 0:
                 logger.info("Indexed %s files; latest=%s", len(file_records), rel_path)
-    storage.replace_snapshot(repo_root, services, file_records)
+    if revision and clean_revision(repo_root) != revision:
+        revision = None
+    storage.replace_snapshot(repo_root, services, file_records, revision)
     summary = storage.summary()
     logger.info("Repository indexing completed: files=%s symbols=%s", summary.indexed_files, summary.indexed_symbols)
     return summary

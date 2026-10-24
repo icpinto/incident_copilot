@@ -30,7 +30,20 @@ class Settings(BaseSettings):
     top_k_candidates: int = Field(default=10, ge=1)
     deep_analysis_top_n: int = Field(default=5, ge=1)
 
+    code_graph_enabled: bool = False
+    gitnexus_url: str = "http://localhost:3111/mcp"
+    # Explicit indexed path on the GitNexus server; empty selects the local repository path.
+    gitnexus_repository: str = ""
+    gitnexus_auth_token: str = ""
+    code_graph_timeout_seconds: float = Field(default=15, gt=0, le=15)
+
     def model_post_init(self, __context: object) -> None:
+        from urllib.parse import urlsplit
+        endpoint = urlsplit(self.gitnexus_url)
+        if endpoint.scheme not in {"http", "https"} or not endpoint.netloc or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+            raise ValueError("GitNexus endpoint must be an HTTP(S) URL without credentials, query, or fragment.")
+        if self.gitnexus_repository.startswith("@"):
+            raise ValueError("Code graph evidence supports one indexed repository, not repository groups.")
         project_root = Path(__file__).resolve().parents[3]
         self.data_dir = self._normalize_path(self.data_dir, project_root)
         self.index_db_path = self._normalize_path(self.index_db_path, project_root)
