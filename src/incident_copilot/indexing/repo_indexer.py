@@ -1,7 +1,7 @@
 import logging
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List
 
 from incident_copilot.core.constants import SUPPORTED_CODE_EXTENSIONS
 from incident_copilot.schemas.index import FileRecord, RepoIndexSummary
@@ -53,20 +53,24 @@ def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) 
     tree_sitter = TreeSitterFacade()
     logger.info("tree_sitter_available=%s", tree_sitter.available)
 
-    file_records: List[FileRecord] = []
+    file_records: list[FileRecord] = []
     for path in _iter_repo_files(repo_root):
         try:
             source = path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except OSError:
+            logger.warning("Skipping unreadable source file: %s", path)
             continue
 
         rel_path = safe_relative(path, repo_root)
         lang = _language_for(path)
 
-        if path.suffix.lower() == ".py":
-            symbols = extract_python_symbols(path, source)
-        else:
-            symbols = extract_lightweight_symbols(path, source)
+        grammar = "tsx" if path.suffix.lower() == ".tsx" else lang
+        symbols = tree_sitter.extract_symbols(path, source, grammar) if grammar else None
+        if symbols is None:
+            if lang == "python":
+                symbols = extract_python_symbols(path, source)
+            else:
+                symbols = extract_lightweight_symbols(path, source)
 
         imports = extract_imports(source)
         env_refs = extract_env_refs(source)

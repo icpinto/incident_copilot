@@ -36,7 +36,7 @@ This repository is a working scaffold and MVP:
 - Temporal workflow and worker included
 - LangGraph diagnosis graph included
 - local LLM adapters included (Ollama and OpenAI-compatible endpoints)
-- optional Tree-sitter integration with safe fallback to regex/light parsing
+- Tree-sitter syntax-tree indexing via the optional `parsing` extra, with safe fallback
 - React operations dashboard with saved incident history, evidence views, and configuration
 - durable dashboard submissions and progress tracking through Temporal
 - repository profiles, worker-side path validation, and isolated indexes for each dashboard run
@@ -234,5 +234,7 @@ if Ollama is listening locally.
 ## Notes
 
 - The index is stored under `data/indexes/repo_index.db` by default.
-- Tree-sitter is optional. The indexer will fall back to lightweight parsing if unavailable.
+- The `parsing` extra enables Tree-sitter indexing for Python, JS/JSX, TS/TSX, Go,
+  Java, JSON, and YAML. If a parser is unavailable, indexing falls back to Python
+  AST or lightweight parsing. See [indexing details](docs/indexing.md).
 - The LLM is optional. If unavailable, the graph falls back to deterministic hypothesis generation.
