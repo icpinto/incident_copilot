@@ -7,6 +7,7 @@ from incident_copilot.core.constants import SUPPORTED_CODE_EXTENSIONS
 from incident_copilot.schemas.index import FileRecord, RepoIndexSummary
 from incident_copilot.tools.fs_utils import safe_relative
 
+from .isolated_parser import IsolatedTreeSitterFacade
 from .service_mapper import build_service_map
 from .storage import IndexStorage
 from .symbol_extractor import (
@@ -16,7 +17,6 @@ from .symbol_extractor import (
     extract_python_symbols,
     extract_routes,
 )
-from .treesitter_indexer import TreeSitterFacade
 
 logger = logging.getLogger(__name__)
 
@@ -50,49 +50,52 @@ def index_repository(repo_root: Path, compose_path: Path | None, db_path: Path) 
     storage = IndexStorage(db_path)
     services = build_service_map(repo_root, compose_path)
 
-    tree_sitter = TreeSitterFacade()
-    logger.info("tree_sitter_available=%s", tree_sitter.available)
-
     file_records: list[FileRecord] = []
-    for path in _iter_repo_files(repo_root):
-        try:
-            source = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            logger.warning("Skipping unreadable source file: %s", path)
-            continue
+    with IsolatedTreeSitterFacade() as tree_sitter:
+        logger.info("Indexing repository %s; tree_sitter_available=%s", repo_root, tree_sitter.available)
+        for path in _iter_repo_files(repo_root):
+            try:
+                source = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                logger.warning("Skipping unreadable source file: %s", path)
+                continue
 
-        rel_path = safe_relative(path, repo_root)
-        lang = _language_for(path)
+            rel_path = safe_relative(path, repo_root)
+            lang = _language_for(path)
 
-        grammar = "tsx" if path.suffix.lower() == ".tsx" else lang
-        symbols = tree_sitter.extract_symbols(path, source, grammar) if grammar else None
-        if symbols is None:
-            if lang == "python":
-                symbols = extract_python_symbols(path, source)
-            else:
-                symbols = extract_lightweight_symbols(path, source)
+            grammar = "tsx" if path.suffix.lower() == ".tsx" else lang
+            symbols = tree_sitter.extract_symbols(path, source, grammar) if grammar else None
+            if symbols is None:
+                if lang == "python":
+                    symbols = extract_python_symbols(path, source)
+                else:
+                    symbols = extract_lightweight_symbols(path, source)
 
-        imports = extract_imports(source)
-        env_refs = extract_env_refs(source)
-        routes = extract_routes(source)
-        service_hints = [
-            s.service_name
-            for s in services
-            if s.build_context and (s.build_context == "." or rel_path.startswith(s.build_context.rstrip("/") + "/"))
-        ]
+            imports = extract_imports(source)
+            env_refs = extract_env_refs(source)
+            routes = extract_routes(source)
+            service_hints = [
+                s.service_name
+                for s in services
+                if s.build_context and (s.build_context == "." or rel_path.startswith(s.build_context.rstrip("/") + "/"))
+            ]
 
-        file_records.append(
-            FileRecord(
-                file_path=rel_path,
-                language=lang,
-                imports=imports,
-                symbols=symbols,
-                env_refs=env_refs,
-                routes=routes,
-                service_hints=service_hints,
-                size_bytes=path.stat().st_size,
-                mtime=path.stat().st_mtime,
+            file_records.append(
+                FileRecord(
+                    file_path=rel_path,
+                    language=lang,
+                    imports=imports,
+                    symbols=symbols,
+                    env_refs=env_refs,
+                    routes=routes,
+                    service_hints=service_hints,
+                    size_bytes=path.stat().st_size,
+                    mtime=path.stat().st_mtime,
+                )
             )
-        )
+            if len(file_records) % 100 == 0:
+                logger.info("Indexed %s files; latest=%s", len(file_records), rel_path)
     storage.replace_snapshot(repo_root, services, file_records)
-    return storage.summary()
+    summary = storage.summary()
+    logger.info("Repository indexing completed: files=%s symbols=%s", summary.indexed_files, summary.indexed_symbols)
+    return summary

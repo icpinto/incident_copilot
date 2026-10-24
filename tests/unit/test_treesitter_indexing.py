@@ -4,9 +4,15 @@ from pathlib import Path
 import pytest
 
 from incident_copilot.correlation.candidate_ranker import rank_candidates
-from incident_copilot.indexing import repo_indexer, treesitter_indexer
+from incident_copilot.indexing import isolated_parser, repo_indexer, treesitter_indexer
+from incident_copilot.indexing.isolated_parser import IsolatedTreeSitterFacade
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.indexing.treesitter_indexer import TreeSitterFacade
+
+
+def _unavailable_worker(connection):
+    connection.send(False)
+    connection.close()
 
 
 @pytest.fixture
@@ -110,27 +116,19 @@ def test_repository_indexes_real_syntax_trees(
     root.mkdir()
     path = root / f"source{suffix}"
     path.write_text(source, encoding="utf-8")
-    calls = []
-    original_parse = TreeSitterFacade.parse
-
-    def parse(self, text, language):
-        calls.append(language)
-        tree = original_parse(self, text, language)
-        assert tree is not None
-        assert not tree.root_node.has_error
-        return tree
+    tree = TreeSitterFacade().parse(source, grammar)
+    assert tree is not None
+    assert not tree.root_node.has_error
 
     def unexpected_fallback(*args):
         pytest.fail("A working Tree-sitter grammar must supply the indexed symbols")
 
-    monkeypatch.setattr(TreeSitterFacade, "parse", parse)
     monkeypatch.setattr(repo_indexer, "extract_python_symbols", unexpected_fallback)
     monkeypatch.setattr(repo_indexer, "extract_lightweight_symbols", unexpected_fallback)
     db_path = tmp_path / "index.db"
     summary = repo_indexer.index_repository(root, None, db_path)
     record = IndexStorage(db_path).get_file_record(path.name)
 
-    assert calls == [grammar]
     assert summary.indexed_files == 1
     assert summary.indexed_symbols == len(expected)
     assert [(s.name, s.kind, s.line_start, s.line_end) for s in record.symbols] == expected
@@ -161,6 +159,8 @@ def test_typescript_tree_symbols_localize_the_later_candidate(tmp_path, parsing_
 
 def test_missing_runtime_preserves_python_ast_fallback(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "tree_sitter", None)
+    assert not TreeSitterFacade().available
+    monkeypatch.setattr(isolated_parser, "_parse_worker", _unavailable_worker)
     root = tmp_path / "repo"
     root.mkdir()
     (root / "main.py").write_text("def charge():\n    return 1\n", encoding="utf-8")
@@ -198,3 +198,26 @@ def test_unicode_names_and_recovered_python_syntax_errors(parsing_dependencies):
     source = "# café\ndef café():\n    return 1\n\ndef broken(\n"
     symbols = TreeSitterFacade().extract_symbols(Path("main.py"), source, "python")
     assert [(s.name, s.line_start, s.line_end) for s in symbols] == [("café", 2, 3)]
+
+
+@pytest.mark.parametrize("grammar", ["python", "tsx"])
+def test_large_line_and_column_offsets_do_not_corrupt_native_points(grammar, parsing_dependencies):
+    if grammar == "python":
+        path = Path("large.py")
+        source = "\n" * 300 + "".join(
+            f"def function_{i}():\n    return {i}\n\n" for i in range(200)
+        )
+        expected = [(f"function_{i}", 301 + 3 * i, 302 + 3 * i) for i in range(200)]
+    else:
+        path = Path("wide.tsx")
+        source = "\n" * 300 + "".join(
+            f"export const component{i} = () => <div>{'x' * 400}</div>;\n" for i in range(200)
+        )
+        expected = [(f"component{i}", 301 + i, 301 + i) for i in range(200)]
+
+    # A regression must fail this assertion without taking down the test runner.
+    with IsolatedTreeSitterFacade(timeout_seconds=2) as parser:
+        for _ in range(3):
+            symbols = parser.extract_symbols(path, source, grammar)
+            assert symbols is not None
+            assert [(s.name, s.line_start, s.line_end) for s in symbols] == expected

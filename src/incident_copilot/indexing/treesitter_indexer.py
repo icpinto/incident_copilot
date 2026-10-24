@@ -128,9 +128,13 @@ class TreeSitterFacade:
             if kind:
                 name = _symbol_name(node)
                 if name is not None:
-                    start = node.start_point.row + 1
+                    # Unpack Points as tuples. The 0.26.0 row/column accessors return
+                    # borrowed references, corrupting integers beyond CPython's small-int cache.
+                    start_row, _ = node.start_point
+                    end_row, end_column = node.end_point
+                    start = start_row + 1
                     # Tree-sitter end positions are exclusive, including at column zero.
-                    end = node.end_point.row + (node.end_point.column > 0)
+                    end = end_row + (end_column > 0)
                     symbols.append(
                         SymbolRecord(
                             name=source_bytes[name.start_byte : name.end_byte].decode("utf-8"),

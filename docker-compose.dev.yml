@@ -48,6 +48,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: incident-copilot-worker
+    restart: unless-stopped
     command: python apps/worker/main.py
     environment:
       IC_TEMPORAL_HOST: temporal:7233
@@ -56,6 +57,7 @@ services:
       IC_CONTROL_DB_PATH: /app/data/control.db
       IC_DATA_DIR: /app/data/artifacts
       IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db
+      IC_TREE_SITTER_ENABLED: ${IC_TREE_SITTER_ENABLED:-true}
       IC_LLM_PROVIDER: ollama
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
@@ -78,6 +80,7 @@ services:
       IC_CONTROL_DB_PATH: /app/data/control.db
       IC_DATA_DIR: /app/data/artifacts
       IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db
+      IC_TREE_SITTER_ENABLED: ${IC_TREE_SITTER_ENABLED:-true}
       IC_TEMPORAL_HOST: temporal:7233
       IC_TEMPORAL_NAMESPACE: default
       IC_TEMPORAL_TASK_QUEUE: incident-copilot
