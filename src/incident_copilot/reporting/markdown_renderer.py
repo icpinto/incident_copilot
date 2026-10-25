@@ -1,3 +1,5 @@
+import json
+import re
 from pathlib import Path
 
 from incident_copilot.schemas.diagnosis import DiagnosisReport
@@ -13,6 +15,19 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
     ]
     if report.fallback_reason:
         parts.append(f"- Fallback reason: `{report.fallback_reason}`")
+    if report.investigation is not None:
+        investigation = report.investigation
+        parts.extend([
+            "", "## Investigation", "",
+            f"- Status: {'incomplete' if investigation.incomplete else 'complete'}",
+            f"- Stop reason: {investigation.stop_reason}",
+            f"- Retrieval rounds: {investigation.rounds}",
+            f"- Model calls: {investigation.model_calls}; tool requests: {investigation.tool_calls}",
+            f"- Duration: {investigation.elapsed_ms / 1000:.2f} seconds",
+        ])
+        if investigation.unresolved_gaps:
+            parts.extend(["", "Unresolved evidence gaps:"])
+            parts.extend(f"- {gap}" for gap in investigation.unresolved_gaps)
     parts.extend(["", "## Summary", report.summary, "", "## Top Candidates"])
     for c in report.candidates:
         parts.extend(
@@ -63,6 +78,48 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                 "",
             ]
         )
+        if h.evidence_refs:
+            parts.extend([
+                "- citations: " + "; ".join(
+                    f"[{ref}](#evidence-{ref})" for ref in h.evidence_refs
+                ), "",
+            ])
+    if report.retrieved_evidence:
+        parts.extend(["## Retrieved Evidence", ""])
+        for item in report.retrieved_evidence:
+            location = item.file_path or item.repository
+            if item.line_start is not None:
+                location += f":{item.line_start}"
+                if item.line_end is not None:
+                    location += f"-{item.line_end}"
+            parts.extend([
+                f'<a id="evidence-{item.id}"></a>',
+                f"### {item.id}",
+                f"- Kind: {item.kind}",
+                f"- Source: `{location}`; revision: `{item.revision or 'unknown'}`",
+            ])
+            if item.request_id:
+                parts.append(f"- Request: `{item.request_id}`")
+            if item.limitations:
+                parts.append(f"- Limitations: {'; '.join(item.limitations)}")
+            if item.truncated:
+                parts.append("- Content clipped; further bounded reads may be required.")
+            # Pick a delimiter longer than any code fence in retrieved source.
+            content = item.content or (json.dumps(item.data, ensure_ascii=False, indent=2) if item.data else "")
+            fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", content)), default=0) + 1)
+            parts.extend(["", fence, content, fence, ""])
+    if report.investigation_events:
+        parts.extend(["## Investigation Actions", ""])
+        for event in report.investigation_events:
+            parts.append(f"- {event.tool or event.kind}: {event.status} ({event.duration_ms} ms)")
+            if event.question:
+                parts.append(f"  - Question: {event.question}")
+            if event.reason:
+                parts.append(f"  - Result: {event.reason}")
+            if event.evidence_ids:
+                parts.append("  - Evidence: " + ", ".join(
+                    f"[{ref}](#evidence-{ref})" for ref in event.evidence_ids
+                ))
     text = "\n".join(parts)
     if output_path:
         output_path.write_text(text, encoding="utf-8")

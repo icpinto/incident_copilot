@@ -1,1 +1,1 @@
--e "../..[api,llm,parsing]"
+-e "../..[api,llm,agentic,parsing]"

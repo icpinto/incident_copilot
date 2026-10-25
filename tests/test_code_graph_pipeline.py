@@ -122,4 +122,8 @@ async def test_comparison_keeps_ranking_and_labels_unmeasured_quality(pipeline, 
     assert result['metrics']['unsupported_claims'] is None and result['metrics']['sidecar_memory_bytes'] is None
     assert result['baseline']['graph_context'] is None
     assert result['enriched']['graph_context']['provider'] == 'gitnexus'
-    assert len(prompts) == 2 and len(calls) == 1
+    assert result['iterative']['investigation']['stop_reason'] == 'source_snapshot_unverified'
+    assert result['iterative']['investigation']['incomplete']
+    assert result['iterative']['candidates'] == result['enriched']['candidates']
+    assert result['metrics']['iterative']['hypothesis_quality'] is None
+    assert len(prompts) == 3 and len(calls) == 1

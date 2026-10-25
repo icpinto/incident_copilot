@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from uuid import uuid4
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 
 from incident_copilot.core.logging import configure_logging
+from incident_copilot.dashboard.api import dashboard_lifespan, router
 from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.incident import IncidentInput
-from incident_copilot.dashboard.api import dashboard_lifespan, router
 from incident_copilot.workflows.temporal_activities import (
     build_service_map_and_index_activity,
     correlate_logs_activity,
@@ -141,20 +141,22 @@ async def health() -> HealthResponse:
 async def diagnose(incident: IncidentInput, request: Request) -> DiagnosisReport:
     config = request.app.state.dashboard.configuration.effective()
     runtime = config.model_dump(mode="json")
-    runtime["index_db_path"] = str(config.index_db_path.parent / "runs" / str(uuid4()) / config.index_db_path.name)
+    context = {"execution_id": str(uuid4()), "repo_root": str(incident.repo_root.resolve())}
     await build_service_map_and_index_activity(
         str(incident.repo_root),
         str(incident.compose_path) if incident.compose_path else None,
         runtime,
+        context,
     )
-    correlation = await correlate_logs_activity(incident.model_dump(mode="json"), runtime)
-    deep = await deep_analysis_activity(str(incident.repo_root), correlation["candidates"], runtime)
+    correlation = await correlate_logs_activity(incident.model_dump(mode="json"), runtime, context)
+    deep = await deep_analysis_activity(str(incident.repo_root), correlation["candidates"], runtime, context)
     report = await diagnosis_graph_activity(
         incident.incident_id or str(uuid4()),
         correlation["parsed_log"],
         correlation["candidates"],
         deep,
         runtime,
+        context,
     )
     return DiagnosisReport.model_validate(report)
 

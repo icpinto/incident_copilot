@@ -4,16 +4,18 @@ import asyncio
 import json
 from pathlib import Path
 
+from incident_copilot.analysis.code_graph import retrieve_graph_context
+from incident_copilot.analysis.dependency_probe import deep_analyze_candidate
 from incident_copilot.core.settings import Settings
 from incident_copilot.correlation.candidate_ranker import rank_candidates
-from incident_copilot.analysis.dependency_probe import deep_analyze_candidate
-from incident_copilot.analysis.code_graph import retrieve_graph_context
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.indexing.repo_indexer import index_repository
 from incident_copilot.indexing.service_mapper import build_service_map
-from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.reporting.markdown_renderer import render_markdown
+from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.diagnosis import DiagnosisReport
+from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
+
 from .config import Configuration, control_path
 from .store import ControlStore, utcnow
 
@@ -100,12 +102,30 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
                 root, Path(run["index_db_path"]), evidence.get("candidates", []), config,
             )
     elif stage == "reasoning":
-        state = await run_diagnosis_graph({
-            "incident_id": incident_id, "parsed_log": evidence.get("parsed_log", {}),
-            "candidates": evidence.get("candidates", []), "deep_analysis": evidence.get("deep_analysis", {}),
-            "candidate_limit": config.top_k_candidates,
-            "graph_context": evidence.get("graph_context"),
-        }, config)
+        from incident_copilot.graph.investigation_runtime import InvestigationRuntime
+
+        async def progress(update: dict) -> None:
+            # This activity owns the evidence snapshot throughout reasoning. Updating
+            # it here also prevents the final stage write from losing streamed data.
+            evidence.update({key: value for key, value in update.items() if key in {
+                "investigation", "retrieved_evidence", "investigation_events", "graph_context",
+            }})
+            redacted = Configuration(store, activate=False).redact(evidence)
+            store.update("incidents", incident_id, {"evidence": redacted, "updated_at": utcnow()})
+
+        async with reasoning_heartbeat(activity) as heartbeat:
+            state = await run_diagnosis_graph({
+                "incident_id": incident_id, "parsed_log": evidence.get("parsed_log", {}),
+                "candidates": evidence.get("candidates", []), "deep_analysis": evidence.get("deep_analysis", {}),
+                "candidate_limit": config.top_k_candidates,
+                "graph_context": evidence.get("graph_context"),
+            }, config, runtime_context=InvestigationRuntime(
+                repo_root=root.resolve(), index_db_path=Path(run["index_db_path"]),
+                execution_id=incident_id, progress=progress, heartbeat=heartbeat,
+            ))
+        await progress({key: state[key] for key in (
+            "investigation", "retrieved_evidence", "investigation_events", "graph_context",
+        ) if key in state})
         report = build_report(state).model_dump(mode="json")
         # Redact at persistence time as well as at the HTTP boundary.
         changes["report"] = Configuration(store, activate=False).redact(report)

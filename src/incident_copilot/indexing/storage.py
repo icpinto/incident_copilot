@@ -1,19 +1,29 @@
 import json
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 
 from incident_copilot.schemas.index import FileRecord, RepoIndexSummary, ServiceMapping
 
 
 class IndexStorage:
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+    def __init__(self, db_path: Path, *, read_only: bool = False) -> None:
+        self.db_path = Path(db_path)
+        self.read_only = read_only
+        if read_only:
+            if not self.db_path.is_file():
+                raise FileNotFoundError("index_unavailable")
+            # Validate the schema immediately; retrieval must never create an empty index.
+            with self._conn() as conn:
+                conn.execute("SELECT key, value FROM metadata LIMIT 0")
+                conn.execute("SELECT file_path, payload FROM files LIMIT 0")
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
+        conn = (sqlite3.connect(self.db_path.resolve().as_uri() + "?mode=ro", uri=True)
+                if self.read_only else sqlite3.connect(str(self.db_path)))
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -81,12 +91,12 @@ class IndexStorage:
             values = dict(conn.execute("SELECT key, value FROM metadata WHERE key IN ('repo_root', 'repo_revision')"))
         return values.get("repo_root", ""), values.get("repo_revision") or None
 
-    def get_services(self) -> List[ServiceMapping]:
+    def get_services(self) -> list[ServiceMapping]:
         with self._conn() as conn:
             rows = conn.execute("SELECT payload FROM services").fetchall()
         return [ServiceMapping.model_validate_json(row["payload"]) for row in rows]
 
-    def get_file_records(self) -> List[FileRecord]:
+    def get_file_records(self) -> list[FileRecord]:
         with self._conn() as conn:
             rows = conn.execute("SELECT payload FROM files").fetchall()
         return [FileRecord.model_validate_json(row["payload"]) for row in rows]

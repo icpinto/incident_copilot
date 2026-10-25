@@ -1,6 +1,6 @@
-from pathlib import Path
 import tempfile
 import warnings
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,6 +29,11 @@ class Settings(BaseSettings):
 
     top_k_candidates: int = Field(default=10, ge=1)
     deep_analysis_top_n: int = Field(default=5, ge=1)
+
+    agentic_enabled: bool = False
+    agentic_max_rounds: int = Field(default=3, ge=1, le=3)
+    agentic_max_tool_requests: int = Field(default=12, ge=1, le=12)
+    agentic_timeout_seconds: float = Field(default=180, gt=0, le=180)
 
     code_graph_enabled: bool = False
     gitnexus_url: str = "http://localhost:3111/mcp"

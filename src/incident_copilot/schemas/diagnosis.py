@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .candidates import CandidateLocation
 from .code_graph import GraphContext
+from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
 
 
 class Hypothesis(BaseModel):
@@ -11,6 +12,7 @@ class Hypothesis(BaseModel):
     title: str
     explanation: str
     evidence: list[str]
+    evidence_refs: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=1)
     next_checks: list[str]
 
@@ -25,3 +27,6 @@ class DiagnosisReport(BaseModel):
     engine: str = "deterministic+llm"
     fallback_reason: str | None = None
     graph_context: GraphContext | None = None
+    retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
+    investigation: InvestigationSummary | None = None
+    investigation_events: list[InvestigationEvent] = Field(default_factory=list)

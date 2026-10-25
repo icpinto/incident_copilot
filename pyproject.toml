@@ -32,8 +32,12 @@ temporal = [
   "temporalio>=1.6.0",
 ]
 llm = [
-  "langgraph>=0.2.6",
+  "langgraph>=1,<2",
   "langchain-core>=0.2.22",
+]
+agentic = [
+  "langgraph>=1,<2",
+  "langgraph-checkpoint-sqlite>=3,<4",
 ]
 parsing = [
   "tree-sitter>=0.25.2,<0.27",

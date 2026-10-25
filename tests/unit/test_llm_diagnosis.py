@@ -64,6 +64,7 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
         assert schema["properties"]["hypotheses"]["maxItems"] == 3
         item = schema["$defs"]["Hypothesis"]
         assert item["additionalProperties"] is False
+        assert set(item["required"]) == set(item["properties"])
         assert set(item["required"]) == {
             "rank",
             "title",
@@ -112,6 +113,7 @@ INVALID_RESPONSES = [
     json.dumps({"hypotheses": [hypothesis(confidence=-0.1)]}),
     json.dumps({"hypotheses": [hypothesis(confidence=float("nan"))]}),
     json.dumps({"hypotheses": [hypothesis(extra="private-key-sentinel")]}),
+    json.dumps({"hypotheses": [hypothesis(evidence_refs=["uncollected-id"])]}),
     json.dumps({"hypotheses": [hypothesis()], "extra": "private-key-sentinel"}),
     json.dumps({"hypotheses": [hypothesis(), hypothesis()]}),
     json.dumps({"hypotheses": [hypothesis(2)]}),

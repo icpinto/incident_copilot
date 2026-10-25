@@ -8,6 +8,7 @@ from incident_copilot.schemas.candidates import CandidateLocation
 from incident_copilot.schemas.logs import ParsedLog
 from incident_copilot.schemas.index import RepoIndexSummary
 from incident_copilot.schemas.code_graph import GraphContext
+from incident_copilot.schemas.investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
 
 
 class RepositoryInput(BaseModel):
@@ -51,6 +52,9 @@ class IncidentEvidence(BaseModel):
     deep_analysis: dict[str, Any] = Field(default_factory=dict)
     index_summary: RepoIndexSummary | None = None
     graph_context: GraphContext | None = None
+    retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
+    investigation: InvestigationSummary | None = None
+    investigation_events: list[InvestigationEvent] = Field(default_factory=list)
 
 
 class IncidentRecord(BaseModel):

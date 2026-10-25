@@ -15,7 +15,27 @@ from .nodes.build_hypotheses import build_hypotheses_node
 from .state import DiagnosisState
 
 
-async def run_diagnosis_graph(payload: Dict[str, Any], runtime_settings=None) -> DiagnosisState:
+async def run_diagnosis_graph(payload: Dict[str, Any], runtime_settings=None, runtime_context=None) -> DiagnosisState:
+    if runtime_settings is not None and getattr(runtime_settings, "agentic_enabled", False):
+        reason = None
+        if runtime_context is None:
+            reason = "investigation_context_missing"
+        else:
+            try:
+                from .investigation import run_investigation
+                return await run_investigation(payload, runtime_settings, runtime_context)
+            except ImportError:
+                reason = "agentic_dependency_unavailable"
+            except ValueError:
+                reason = "source_snapshot_unverified"
+        # Preserve the established single-pass path and explicitly report the downgrade.
+        fallback_settings = runtime_settings.model_copy(update={"agentic_enabled": False})
+        state = await run_diagnosis_graph(payload, fallback_settings)
+        from incident_copilot.schemas.investigation import InvestigationSummary
+        state["investigation"] = InvestigationSummary(
+            stop_reason=reason, incomplete=True, model_calls=int(bool(state.get("candidates"))),
+        ).model_dump(mode="json")
+        return state
     async def hypotheses_node(state):
         return await build_hypotheses_node(state, runtime_settings)
 

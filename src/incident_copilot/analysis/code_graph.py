@@ -144,6 +144,7 @@ def check_staleness(payload: dict[str, Any]) -> None:
 
 async def retrieve_graph_context(
     root: Path, index_db_path: Path, candidates: list[dict[str, Any]], config: Settings,
+    *, expected_generation: str | None = None,
 ) -> dict[str, Any] | None:
     if not config.code_graph_enabled:
         return None
@@ -151,7 +152,7 @@ async def retrieve_graph_context(
     context = GraphContext(repository=config.gitnexus_repository or str(root.resolve()), status="skipped")
     try:
         async with asyncio.timeout(config.code_graph_timeout_seconds):
-            await _retrieve(root, index_db_path, candidates, config, context)
+            await _retrieve(root, index_db_path, candidates, config, context, expected_generation)
     except TimeoutError:
         context.status, context.reason = "unavailable", "retrieval_timeout"
         context.symbols, context.relationships = [], []
@@ -162,6 +163,20 @@ async def retrieve_graph_context(
         context.symbols, context.relationships = [], []
     context.retrieval_ms = round((time.monotonic() - started) * 1000, 2)
     return context.model_dump(mode="json")
+
+
+async def retrieve_symbol_context(
+    root: Path, index_db_path: Path, symbol: dict[str, Any], config: Settings,
+    *, expected_generation: str | None = None,
+) -> dict[str, Any] | None:
+    """Retrieve a verified single symbol's neighbors without recursively traversing them."""
+    seed = {
+        "file_path": symbol["file_path"], "symbol_name": symbol["name"],
+        "line_start": symbol["line_start"], "line_end": symbol["line_end"],
+    }
+    return await retrieve_graph_context(
+        root, index_db_path, [seed], config, expected_generation=expected_generation,
+    )
 
 
 def _reason(exc: Exception) -> str:
@@ -177,12 +192,12 @@ def _reason(exc: Exception) -> str:
     return "provider_unavailable"
 
 
-async def _retrieve(root: Path, index_db_path: Path, candidates: list[dict[str, Any]], config: Settings, context: GraphContext) -> None:
+async def _retrieve(root: Path, index_db_path: Path, candidates: list[dict[str, Any]], config: Settings, context: GraphContext, expected_generation: str | None = None) -> None:
     context.repo_revision = await asyncio.to_thread(clean_revision, root)
     if context.repo_revision is None:
         context.reason = "checkout_not_clean_or_unavailable"
         return
-    storage = IndexStorage(index_db_path)
+    storage = IndexStorage(index_db_path, read_only=True)
     indexed_root, indexed_revision = storage.snapshot_identity()
     if Path(indexed_root).resolve() != root.resolve() or indexed_revision != context.repo_revision:
         context.reason = "source_snapshot_mismatch"
@@ -196,6 +211,8 @@ async def _retrieve(root: Path, index_db_path: Path, candidates: list[dict[str, 
         before = await repository_snapshot(provider, context.repository)
         context.indexed_revision = before["lastCommit"]
         context.indexed_at = before.get("indexedAt")
+        if expected_generation is not None and context.indexed_at != expected_generation:
+            raise GraphEvidenceError("stale_index")
         if context.indexed_revision != context.repo_revision:
             raise GraphEvidenceError("stale_index")
         symbols: dict[str, GraphSymbol] = {}

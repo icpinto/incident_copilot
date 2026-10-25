@@ -14,3 +14,17 @@ class DiagnosisState(TypedDict, total=False):
     engine: str
     fallback_reason: str | None
     candidate_limit: int
+    execution_id: str
+    source_snapshot: dict[str, Any]
+    evidence_records: dict[str, dict[str, Any]]
+    working_hypotheses: list[dict[str, Any]]
+    pending_requests: list[dict[str, Any]]
+    retrieval_outcomes: dict[str, dict[str, Any]]
+    execution_budget: dict[str, Any]
+    investigation_progress: dict[str, Any]
+    assessment_decision: dict[str, Any]
+    active_request: dict[str, Any] | None
+    action_result: dict[str, Any] | None
+    investigation: dict[str, Any] | None
+    retrieved_evidence: list[dict[str, Any]]
+    investigation_events: list[dict[str, Any]]

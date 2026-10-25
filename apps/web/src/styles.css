@@ -85,3 +85,16 @@ th{font-weight:600}
   .filter-secondary label input{flex:1;min-width:0}
   .workflow-note>div{gap:8px}
 }
+/* Retrieved evidence and persistent investigation progress. */
+.investigation-summary { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 0 0 1.5rem; }
+.investigation-summary dt { color: var(--muted, #939dac); font-size: .8rem; }
+.investigation-summary dd { margin: .3rem 0 0; }
+.hypothesis-citations { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; margin-top: .8rem; }
+.evidence-link { display: inline-block; font-family: monospace; font-size: .8rem; padding: .15rem .4rem; border: 1px solid #35422c; border-radius: .3rem; overflow-wrap: anywhere; }
+.investigation-actions > li { margin-bottom: 1rem; }
+.investigation-actions p { margin: .3rem 0; }
+.investigation-actions span { color: #939dac; font-size: .8rem; }
+.retrieved-evidence { margin-top: 1.5rem; }
+.retrieved-evidence-item { border-top: 1px solid #29313c; padding: .8rem 0; scroll-margin-top: 1rem; overflow-wrap: anywhere; }
+.retrieved-evidence-item summary { cursor: pointer; }
+.retrieved-evidence-item summary code { margin-right: .5rem; color: #b4f272; }

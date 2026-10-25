@@ -15,4 +15,7 @@ def build_report(graph_state: dict) -> DiagnosisReport:
         engine=graph_state.get("engine", "deterministic"),
         fallback_reason=graph_state.get("fallback_reason"),
         graph_context=graph_state.get("graph_context"),
+        retrieved_evidence=graph_state.get("retrieved_evidence", []),
+        investigation=graph_state.get("investigation"),
+        investigation_events=graph_state.get("investigation_events", []),
     )

@@ -73,6 +73,22 @@ describe('dashboard workflows', () => {
     expect(screen.getByText(/runtime execution is unproven/)).toBeInTheDocument();
   });
 
+  it('links findings to retrieved evidence and displays investigation gaps and actions', async () => {
+    const item = { id: 'ev-path', kind: 'source', repository: '/repo', revision: 'abc123', file_path: 'cache.py', line_start: 4, line_end: 5, content: 'def _path(): return key', data: {}, limitations: ['lower_bound'], request_id: 'req-path', truncated: true };
+    mockFetch(() => ({ ...run, report: { ...run.report, hypotheses: [{ ...run.report!.hypotheses[0], evidence_refs: ['ev-path'] }], retrieved_evidence: [item], investigation: { mode: 'agentic', version: 1, rounds: 2, model_calls: 3, tool_calls: 2, elapsed_ms: 1250, stop_reason: 'model_finished', incomplete: true, unresolved_gaps: ['Need the failing cache key'] }, investigation_events: [{ id: 'event-path', kind: 'retrieval', tool: 'read_source', question: 'How is the path built?', status: 'ok', evidence_ids: ['ev-path'], duration_ms: 10 }] } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    expect(await screen.findByText('Evidence investigation')).toBeInTheDocument();
+    expect(screen.getByText('Incomplete')).toBeInTheDocument();
+    expect(screen.getByText('Need the failing cache key')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'ev-path' })[0]).toHaveAttribute('href', '#retrieved-evidence-ev-path');
+    await userEvent.click(screen.getByText('Investigation actions (1)'));
+    expect(screen.getByText('How is the path built?')).toBeVisible();
+    await userEvent.click(screen.getByText(/cache.py:4/));
+    expect(screen.getByText('def _path(): return key')).toBeVisible();
+    expect(screen.getByText('Limitations: lower_bound')).toBeVisible();
+    expect(screen.getByText(/Content clipped/)).toBeVisible();
+  });
+
   it('shows actual retry attempts in the progress view', () => {
     view(<Pipeline run={{ ...run, status: 'running', stage: 'indexing', timeline: [{ stage: 'indexing', started_at: new Date().toISOString(), completed_at: null, attempt: 2 }] }} />);
     expect(screen.getByText('Attempt 2')).toBeInTheDocument();
@@ -134,5 +150,21 @@ describe('dashboard workflows', () => {
   it('turns network failures into a useful reconnect message', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(api('/overview')).rejects.toThrow('Cannot reach the local API');
+  });
+
+  it('saves iterative investigation as a boolean with bounded controls', async () => {
+    const saved = { llm_provider: 'ollama', ollama_base_url: 'http://localhost:11434', ollama_model: 'model', openai_compatible_base_url: 'http://localhost:8000/v1', openai_compatible_model: 'model', openai_compatible_api_key: '', top_k_candidates: 10, deep_analysis_top_n: 5, temporal_host: 'localhost:7233', temporal_namespace: 'default', temporal_task_queue: 'copilot', temporal_connect_max_attempts: 60, temporal_connect_retry_delay_seconds: 2, app_name: 'copilot', env: 'dev', data_dir: '/data', index_db_path: '/data/index.db', agentic_enabled: false, agentic_max_rounds: 3, agentic_max_tool_requests: 12, agentic_timeout_seconds: 180 };
+    const config: SettingsData = { saved, active: saved, overridden: [], restart_required: [], infrastructure_fields: [], control_db_path: '/data/control.db', secret_configured: false };
+    const requests: unknown[] = [];
+    mockFetch((_url, init) => { if (init?.method === 'PUT') requests.push(JSON.parse(String(init.body))); return config; });
+    view(<Settings />);
+    const enabled = await screen.findByLabelText('Iterative evidence retrieval');
+    expect(enabled).toHaveValue('false');
+    expect(screen.getByLabelText('Maximum retrieval rounds')).toHaveAttribute('max', '3');
+    expect(screen.getByLabelText('Maximum evidence requests')).toHaveAttribute('max', '12');
+    expect(screen.getByLabelText('Investigation deadline (seconds)')).toHaveAttribute('max', '180');
+    await userEvent.selectOptions(enabled, 'true');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save changes' })[0]);
+    await waitFor(() => expect(requests).toEqual([{ values: { agentic_enabled: true }, reset: [] }]));
   });
 });

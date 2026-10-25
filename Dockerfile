@@ -19,7 +19,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY apps ./apps
 
-RUN pip install --no-cache-dir -e ".[api,temporal,llm,parsing,codegraph]"
+RUN pip install --no-cache-dir -e ".[api,temporal,llm,agentic,parsing,codegraph]"
 
 COPY --from=dashboard /web/dist ./apps/web/dist
 

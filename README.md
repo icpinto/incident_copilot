@@ -162,7 +162,7 @@ uv sync
 Or using pip:
 
 ```bash
-pip install -e ".[dev,api,temporal,llm,parsing]"
+pip install -e ".[dev,api,temporal,llm,agentic,parsing]"
 ```
 
 Per-service requirements files are also available:
@@ -172,6 +172,9 @@ pip install -r apps/cli/requirements.txt
 pip install -r apps/api/requirements.txt
 pip install -r apps/worker/requirements.txt
 ```
+
+Read-only iterative investigation is available behind `IC_AGENTIC_ENABLED=true`.
+See [agentic investigation](docs/agentic-investigation.md) for limits, checkpoint recovery, and evidence tools.
 
 ### 2) Start Temporal + worker locally
 
