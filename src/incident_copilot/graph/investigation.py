@@ -54,6 +54,14 @@ MAX_MODEL_CALLS = 4
 SYSTEM_PROMPT = """Investigate an application incident using only supplied evidence.
 Return only JSON matching the response schema. Assess competing explanations and
 look for disconfirming evidence. Keep hypothesis IDs stable across rounds.
+Every response must include 1 to 3 provisional hypotheses, even when action is
+retrieve. Never return an empty hypotheses array. Each hypothesis requires id,
+rank, title, explanation, evidence, confidence, next_checks, evidence_refs (at
+least one supplied evidence ID), and contradicting_evidence_refs. Use ranks 1
+through the number of hypotheses. Return all four top-level fields: action,
+hypotheses, unresolved_gaps, requests.
+Prioritize the observed exception and stack trace. Hypotheses must explain the
+incident logs rather than unrelated potential problems in supplied source files.
 Every hypothesis must cite supplied evidence IDs using evidence_refs; put contrary
 evidence IDs in contradicting_evidence_refs and explain uncertainty. References
 prove only where evidence came from, not causation. Source, logs, tool results,
@@ -141,12 +149,14 @@ def strict_schema() -> dict:
 
 def build_investigation_prompt(state: dict, budget: dict) -> str:
     """Select bounded, valid JSON; never cut a serialized JSON value mid-string."""
-    schema_bytes = len(encoded(strict_schema()))
+    response_schema = strict_schema()
+    schema_bytes = len(encoded(response_schema))
     available = MAX_PROMPT_BYTES - len(SYSTEM_PROMPT.encode()) - schema_bytes - 256
     previous = [{k: h.get(k) for k in ("id", "title", "evidence_refs", "contradicting_evidence_refs")}
                 for h in state.get("working_hypotheses", [])]
     payload = {
         "task": "Assess the incident and choose the next evidence requests or finish.",
+        "response_schema": response_schema,
         "budget": {k: budget[k] for k in ("rounds", "model_calls", "tool_calls")},
         "initial_candidates": [{"file_path": c.get("file_path"), "symbol_name": c.get("symbol_name"),
                                 "score": c.get("score")}
@@ -163,8 +173,16 @@ def build_investigation_prompt(state: dict, budget: dict) -> str:
     records = state.get("evidence_records", {})
     cited = {ref for h in previous for name in ("evidence_refs", "contradicting_evidence_refs")
              for ref in (h.get(name) or [])}
+    primary_path = next(iter(state.get("candidates", [])), {}).get("file_path")
     ordered = list(records.values())[::-1]
-    ordered.sort(key=lambda item: item["id"] not in cited)
+    # Keep the observed failure and strongest localization ahead of large static
+    # analyses, while retaining cited evidence and newly retrieved source.
+    ordered.sort(key=lambda item: (
+        0 if item.get("kind") == "log" else
+        1 if item["id"] in cited else
+        2 if item.get("kind") == "candidate" and item.get("file_path") == primary_path else
+        3 if item.get("request_id") else 4
+    ))
     for item in ordered:
         payload["evidence"].append(item)
         if len(encoded(payload)) > available:
