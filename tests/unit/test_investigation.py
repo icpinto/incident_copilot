@@ -58,6 +58,10 @@ async def test_call_discovery_read_source_and_revise_hypothesis(case, monkeypatc
     class Model:
         async def complete(self, **kwargs):
             prompts.append(json.loads(kwargs["prompt"]))
+            # Ollama's decoding schema does not teach the model the response
+            # shape. Supply the same contract in the prompt on every round.
+            assert prompts[-1]["response_schema"] == kwargs["response_schema"]
+            assert prompts[-1]["response_schema"]["properties"]["hypotheses"]["minItems"] == 1
             if len(prompts) == 1:
                 return response(kwargs["prompt"], [{"tool": "get_related_calls", "question": "Which helpers does get call?",
                     "symbol": {"file_path": "cache.py", "name": "get", "line_start": 1, "line_end": 2}}])
@@ -272,7 +276,12 @@ def test_prompt_budget_counts_schema_and_system(case):
         state["evidence_records"][str(i)] = {"id": str(i), "content": "x" * 8000}
     prompt = investigation.build_investigation_prompt(state, {"rounds": 0, "model_calls": 0, "tool_calls": 0})
     assert len(prompt.encode()) + len(investigation.SYSTEM_PROMPT.encode()) + len(investigation.encoded(investigation.strict_schema())) < 32768
+    assert json.loads(prompt)["response_schema"] == investigation.strict_schema()
     assert json.loads(prompt)["omitted_evidence_ids"]
+    evidence = json.loads(prompt)["evidence"]
+    assert evidence[0]["kind"] == "log"
+    assert evidence[0]["data"]["error_lines"] == ["ValueError: bad path"]
+    assert evidence[1]["kind"] == "candidate" and evidence[1]["file_path"] == "cache.py"
 
 
 @pytest.mark.asyncio
