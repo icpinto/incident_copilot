@@ -39,7 +39,7 @@ def validate_repository(repo_root: str, compose_path: str | None) -> dict:
         return {"valid": False, "message": "Compose file does not exist on the worker.", "services": []}
     try:
         services = [item.model_dump() for item in build_service_map(root, compose)]
-    except Exception:
+    except Exception:  # noqa: BLE001 -- Return a safe validation failure for inaccessible repository metadata.
         return {"valid": False, "message": "Compose file could not be parsed. Check its YAML and service definitions.", "services": []}
     return {"valid": True, "message": "Repository is accessible from the worker.", "services": services}
 
@@ -89,6 +89,8 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             config.top_k_candidates, inputs.get("user_hint_service"),
         )
         evidence["parsed_log"] = parsed.model_dump()
+        # Original input is already captured once in evidence.raw_log.
+        evidence["parsed_log"]["raw_text"] = ""
         evidence["candidates"] = [item.model_dump() for item in candidates.items]
     elif stage == "analyzing":
         results = {}

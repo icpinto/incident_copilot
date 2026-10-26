@@ -10,4 +10,7 @@ def finalize_report_node(state: DiagnosisState) -> DiagnosisState:
         f"Most likely service: {likely_service}. "
         f"Most likely error class: {likely_error_class}."
     )
+    if state.get("incident_context"):
+        from incident_copilot.correlation.log_parser import scope_notice
+        state["summary"] += " " + scope_notice(state["incident_context"])
     return state

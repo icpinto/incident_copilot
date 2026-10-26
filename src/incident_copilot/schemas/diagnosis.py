@@ -5,6 +5,7 @@ from incident_copilot.schemas.validation import AnalysisValidationError
 from .candidates import CandidateLocation
 from .code_graph import GraphContext
 from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
+from .logs import IncidentContext
 
 
 class Hypothesis(BaseModel):
@@ -26,6 +27,7 @@ class DiagnosisReport(BaseModel):
     candidates: list[CandidateLocation]
     hypotheses: list[Hypothesis]
     summary: str
+    incident_context: IncidentContext | None = None
     engine: str = "deterministic+llm"
     fallback_reason: str | None = None
     graph_context: GraphContext | None = None

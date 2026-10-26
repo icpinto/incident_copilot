@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any
 
+from incident_copilot.correlation.log_parser import primary_log, scope_notice
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fallback_hypotheses(state: DiagnosisState) -> list[dict[str, Any]]:
-    parsed = state.get("parsed_log", {})
+    parsed = primary_log(state.get("parsed_log", {}))
     candidates = state.get("candidates", [])
     if not candidates:
         return [
@@ -45,7 +46,9 @@ def _fallback_hypotheses(state: DiagnosisState) -> list[dict[str, Any]]:
 
 
 def build_diagnosis_prompt(state: DiagnosisState) -> str:
-    parsed = state.get("parsed_log", {})
+    original = state.get("parsed_log", {})
+    parsed = primary_log(original)
+    context = state.get("incident_context") or original.get("incident_context")
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
     response_schema = HypothesesResponse.model_json_schema()
@@ -56,6 +59,8 @@ def build_diagnosis_prompt(state: DiagnosisState) -> str:
                 "exception_types": parsed.get("exception_types", []),
                 "error_lines": parsed.get("error_lines", [])[:10],
                 "keywords": parsed.get("keywords", [])[:20],
+                "analysis_scope": scope_notice(context),
+                "primary_events": _prompt_events(context),
             },
             indent=2,
         ),
@@ -65,6 +70,26 @@ def build_diagnosis_prompt(state: DiagnosisState) -> str:
         response_schema=json.dumps(response_schema, indent=2),
     )
     return prompt
+
+
+def _prompt_events(context: dict | None) -> dict:
+    if not context:
+        return {}
+    from incident_copilot.correlation.log_parser import group_events
+    from incident_copilot.schemas.logs import IncidentContext
+    events = group_events(IncidentContext.model_validate(context), context.get("primary_group_id"))
+    # Keep single-pass timeline context bounded as well as the existing summary.
+    selected, size = [], 0
+    for event in events:
+        item = event.model_dump()
+        item["message"] = item["message"][:2000]
+        length = len(json.dumps(item).encode())
+        if size + length > 8192:
+            continue
+        selected.append(item)
+        size += length
+    return {"events": selected, "omitted_event_count": len(events) - len(selected),
+            "limitations": context.get("limitations", [])[:10], "messages_may_be_clipped": True}
 
 
 async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:

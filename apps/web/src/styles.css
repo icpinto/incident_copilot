@@ -98,3 +98,15 @@ th{font-weight:600}
 .retrieved-evidence-item { border-top: 1px solid #29313c; padding: .8rem 0; scroll-margin-top: 1rem; overflow-wrap: anywhere; }
 .retrieved-evidence-item summary { cursor: pointer; }
 .retrieved-evidence-item summary code { margin-right: .5rem; color: #b4f272; }
+.incident-timeline { padding: 0 20px 20px; }
+.incident-event-group { border-top: 1px solid var(--border); padding: 16px 0; }
+.incident-event-group > summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; cursor: pointer; overflow-wrap: anywhere; }
+.timeline-order { display: flex; align-items: center; gap: 8px; margin: 15px 0; }
+.timeline-order input { width: auto; margin: 0; }
+.incident-events { padding-left: 22px; }
+.incident-events > li { padding: 12px 0; scroll-margin-top: 20px; }
+.event-metadata { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.incident-events .code-block { max-height: 260px; }
+.incident-events .mono { overflow-wrap: anywhere; }
+.original-log-source { scroll-margin-top: 20px; }
+.source-range > strong, .source-range > p { display: block; padding: 12px 20px; }

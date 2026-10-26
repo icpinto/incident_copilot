@@ -10,6 +10,7 @@ def score_file(
     record: FileRecord,
     parsed_log: ParsedLog,
     repo_root: Path | None = None,
+    user_hint_service: str | None = None,
 ) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -19,6 +20,11 @@ def score_file(
         if service.lower() in path_lower or service in record.service_hints:
             score += 8.0
             reasons.append(f"service match: {service}")
+
+    if (user_hint_service and user_hint_service not in parsed_log.services
+            and (user_hint_service.lower() in path_lower or user_hint_service in record.service_hints)):
+        score += 8.0
+        reasons.append(f"user service hint: {user_hint_service}")
 
     matches = [
         (stack_path_match(record.file_path, frame.file_path, repo_root), frame)

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 def utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class ControlStore:
@@ -49,11 +50,17 @@ class ControlStore:
             row = db.execute(f"SELECT payload FROM {table} WHERE id=?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def list(self, table: str) -> list[dict]:
+    def list(self, table: str, *, exclude_id_prefix: str | None = None) -> list[dict]:
         self._table(table)
         order = " ORDER BY created_at DESC, id DESC" if table == "incidents" else ""
         with self.connection() as db:
-            rows = db.execute(f"SELECT payload FROM {table}{order}").fetchall()
+            if exclude_id_prefix is None:
+                rows = db.execute(f"SELECT payload FROM {table}{order}").fetchall()
+            else:
+                rows = db.execute(
+                    f"SELECT payload FROM {table} WHERE substr(id, 1, ?) != ?{order}",
+                    (len(exclude_id_prefix), exclude_id_prefix),
+                ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
     @staticmethod

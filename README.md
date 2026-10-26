@@ -27,6 +27,10 @@ The diagnosis pipeline is:
 5. LLM-assisted hypothesis ranking
 6. Markdown / JSON diagnosis report
 
+New analyses build an [incident timeline](docs/incident-timeline.md) before ranking.
+Explicit trace/request identifiers associate events; one primary group supplies diagnosis
+evidence, while other groups remain visible in the dashboard and report exports.
+
 ## Current status
 
 This repository is a working scaffold and MVP:

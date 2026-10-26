@@ -4,6 +4,8 @@ from typing import Any, TypedDict
 class DiagnosisState(TypedDict, total=False):
     incident_id: str
     parsed_log: dict[str, Any]
+    incident_context: dict[str, Any] | None
+    omitted_initial_context_count: int
     candidates: list[dict[str, Any]]
     deep_analysis: dict[str, Any]
     graph_context: dict[str, Any] | None

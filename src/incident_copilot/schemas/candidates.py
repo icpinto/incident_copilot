@@ -1,17 +1,19 @@
-from typing import List, Optional
+
 from pydantic import BaseModel
 
 
 class CandidateLocation(BaseModel):
     file_path: str
-    symbol_name: Optional[str] = None
-    service_name: Optional[str] = None
+    symbol_name: str | None = None
+    service_name: str | None = None
     score: float
-    reasons: List[str] = []
-    snippet: Optional[str] = None
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
+    reasons: list[str] = []
+    snippet: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
+    group_id: str | None = None
+    event_ids: list[str] = []
 
 
 class CandidateSet(BaseModel):
-    items: List[CandidateLocation]
+    items: list[CandidateLocation]

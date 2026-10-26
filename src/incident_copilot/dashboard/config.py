@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from incident_copilot.core.settings import Settings
+
 from .models import SettingsUpdate, SettingsView
 from .store import ControlStore
 
@@ -97,7 +98,10 @@ class Configuration:
     def redact(self, payload):
         """Remove configured credentials from all public payloads, including stored errors."""
         secrets = {getattr(self.desired(), key) for key in SECRETS}
-        secrets.update(row.get(key, "") for row in self.store.list("revisions") for key in SECRETS)
+        # Large log snapshots share the JSON table but contain no configuration secrets.
+        secrets.update(row.get(key, "") for row in self.store.list(
+            "revisions", exclude_id_prefix="incident-context-",
+        ) for key in SECRETS)
         structural = {"id", "incident_id", "repository_id", "config_revision", "status", "stage", "engine", "created_at", "updated_at", "completed_at", "started_at"}
         def clean(value, key=""):
             if isinstance(value, dict):

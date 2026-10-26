@@ -11,10 +11,11 @@ from incident_copilot.indexing.repo_indexer import index_repository
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.incident import IncidentInput
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
+from incident_copilot.workflows.log_context import hydrate_parsed_log, offload_parsed_log
 
 try:
     from temporalio import activity  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     class DummyActivity:
         def defn(self, fn): return fn
     activity = DummyActivity()
@@ -67,8 +68,11 @@ async def correlate_logs_activity(incident: dict, runtime: dict | None = None, c
         top_k=settings.top_k_candidates,
         user_hint_service=inc.user_hint_service,
     )
+    parsed = parsed_log.model_dump()
+    if getattr(activity, "in_activity", lambda: False)():
+        parsed = offload_parsed_log(parsed)
     return {
-        "parsed_log": parsed_log.model_dump(),
+        "parsed_log": parsed,
         "candidates": [c.model_dump() for c in candidates.items],
     }
 
@@ -91,6 +95,8 @@ async def deep_analysis_activity(repo_root: str, candidates: list[dict], runtime
 @activity.defn
 async def diagnosis_graph_activity(incident_id: str, parsed_log: dict, candidates: list[dict], deep_analysis: dict, runtime: dict | None = None, context: dict | None = None) -> dict:
     settings = runtime_settings(runtime, context)
+    reference = parsed_log.get("incident_context_ref")
+    parsed_log = hydrate_parsed_log(parsed_log)
     graph_context = deep_analysis.get("graph_context") if "files" in deep_analysis else None
     files = deep_analysis.get("files", deep_analysis)
     async with reasoning_heartbeat(activity) as heartbeat:
@@ -111,4 +117,8 @@ async def diagnosis_graph_activity(incident_id: str, parsed_log: dict, candidate
                 "candidate_limit": settings.top_k_candidates,
             }, settings, runtime_context=runtime_context,
         )
-    return build_report(state).model_dump()
+    report = build_report(state).model_dump()
+    if reference:
+        report.pop("incident_context", None)
+        report["incident_context_ref"] = reference
+    return report

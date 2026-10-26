@@ -15,6 +15,31 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
     ]
     if report.fallback_reason:
         parts.append(f"- Fallback reason: `{report.fallback_reason}`")
+    if report.incident_context is not None:
+        context = report.incident_context
+        parts.extend(["", "## Incident Timeline", "",
+                      f"- Primary group: `{context.primary_group_id or 'none'}`",
+                      f"- Selection: {context.selection_reason or 'not selected'}",
+                      "- Diagnosis covers the primary group; other groups are context only.",
+                      "- Shared IDs and chronology establish association, not causation.", ""])
+        for group in context.groups:
+            label = "primary" if group.id == context.primary_group_id else "excluded context"
+            parts.append(f"- `{group.id}` ({label}): {len(group.event_ids)} events; "
+                         f"services: {', '.join(group.services) or 'unknown'}; grouped by {group.grouping_basis}")
+        for limitation in context.limitations:
+            parts.append(f"- Limitation: {limitation}")
+        from incident_copilot.correlation.log_parser import group_events
+        for event in group_events(context, context.primary_group_id):
+            parts.extend(["", f"### Event {event.id}",
+                          f"- Original lines: {event.line_start}-{event.line_end}",
+                          f"- Service: `{event.service or 'unknown'}`; timestamp: `{event.timestamp or 'unknown'}`"])
+            for exception in event.exceptions:
+                parts.append(f"- Exception: `{exception.type}`; "
+                             f"relation: {exception.relation or 'none'}; previous: {exception.previous_id or 'none'}")
+            for limitation in event.limitations:
+                parts.append(f"- Limitation: {limitation}")
+            fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", event.message)), default=0) + 1)
+            parts.extend(["", fence, event.message, fence, ""])
     if report.validation_errors:
         parts.extend(["", "## Analysis Validation Errors", ""])
         for failure in report.validation_errors:
