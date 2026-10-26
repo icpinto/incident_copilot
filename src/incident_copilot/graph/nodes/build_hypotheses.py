@@ -2,12 +2,11 @@ import json
 import logging
 from typing import Any
 
-from pydantic import ValidationError
-
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
 from incident_copilot.llm.structured_output import HypothesesResponse
+from incident_copilot.llm.validation import AnalysisValidationFailure, validate_response
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +70,7 @@ def build_diagnosis_prompt(state: DiagnosisState) -> str:
 async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) -> DiagnosisState:
     state["engine"] = "deterministic"
     state["fallback_reason"] = None
+    state["validation_errors"] = []
     candidates = state.get("candidates", [])
     if not candidates:
         state["fallback_reason"] = "no_candidates"
@@ -93,10 +93,11 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
         state["hypotheses"] = _fallback_hypotheses(state)
         return state
     try:
-        response = HypothesesResponse.model_validate_json(text, strict=True)
-    except ValidationError:
+        response = validate_response(text, HypothesesResponse, stage="hypothesis_generation", model_call=1)
+    except AnalysisValidationFailure as exc:
         logger.warning("LLM diagnosis fallback: llm_invalid_response")
         state["fallback_reason"] = "llm_invalid_response"
+        state["validation_errors"] = [exc.diagnostic.model_dump(mode="json")]
         state["hypotheses"] = _fallback_hypotheses(state)
     else:
         state["hypotheses"] = [item.model_dump() for item in response.hypotheses]

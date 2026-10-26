@@ -11,9 +11,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import PydanticCustomError
 
 from incident_copilot.analysis.evidence_tools import EvidenceTools, redact_evidence
-from incident_copilot.graph.investigation_runtime import InvestigationRuntime
+from incident_copilot.graph.investigation_runtime import (
+    InvestigationRuntime,
+    SourceSnapshotUnverifiedError,
+)
 from incident_copilot.graph.investigation_store import InvestigationStore, execution_lock
 from incident_copilot.graph.nodes.build_hypotheses import _fallback_hypotheses
 from incident_copilot.graph.nodes.enrich_candidates import enrich_candidates_node
@@ -23,6 +27,13 @@ from incident_copilot.graph.nodes.select_candidates import select_candidates_nod
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.llm.client import get_client
+from incident_copilot.llm.validation import (
+    SEMANTIC_MESSAGES,
+    AnalysisValidationFailure,
+    schema_diagnostic,
+    validate_response,
+    validation_failure,
+)
 from incident_copilot.schemas.diagnosis import Hypothesis
 from incident_copilot.schemas.investigation import (
     EvidenceItem,
@@ -31,6 +42,7 @@ from incident_copilot.schemas.investigation import (
     InvestigationSummary,
     ToolOutcome,
 )
+from incident_copilot.schemas.validation import AnalysisValidationError
 from incident_copilot.tools.git_local import clean_revision
 
 MAX_PROMPT_BYTES = 32768
@@ -83,12 +95,12 @@ class InvestigationDecision(BaseModel):
     @model_validator(mode="after")
     def coherent(self):
         if (self.action == "retrieve") != bool(self.requests):
-            raise ValueError("action_request_mismatch")
+            raise PydanticCustomError("action_request_mismatch", SEMANTIC_MESSAGES["action_request_mismatch"])
         ranks = sorted(h.rank for h in self.hypotheses)
         if ranks != list(range(1, len(ranks) + 1)):
-            raise ValueError("invalid_ranks")
+            raise PydanticCustomError("invalid_ranks", SEMANTIC_MESSAGES["invalid_ranks"])
         if len({h.id for h in self.hypotheses}) != len(self.hypotheses):
-            raise ValueError("duplicate_hypothesis_id")
+            raise PydanticCustomError("duplicate_hypothesis_id", SEMANTIC_MESSAGES["duplicate_hypothesis_id"])
         self.hypotheses.sort(key=lambda hypothesis: hypothesis.rank)
         return self
 
@@ -161,7 +173,7 @@ def build_investigation_prompt(state: dict, budget: dict) -> str:
         payload["working_hypotheses"] = []
     result = encoded(payload).decode()
     if len(result.encode()) > available:
-        raise ValueError("prompt_limit")
+        raise validation_failure(stage="investigation_assessment", kind="limit", code="prompt_limit")
     return result
 
 
@@ -202,7 +214,8 @@ def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
     return {"investigation": summary.model_dump(mode="json"),
             "retrieved_evidence": list(state.get("evidence_records", {}).values()),
             "investigation_events": state.get("investigation_events", []),
-            "graph_context": state.get("graph_context")}
+            "graph_context": state.get("graph_context"),
+            "validation_errors": state.get("validation_errors", [])}
 
 
 def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
@@ -233,7 +246,7 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
     state.update(source_snapshot=snapshot, evidence_records=records, working_hypotheses=[],
                  pending_requests=[], retrieval_outcomes={}, investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",
-                 fallback_reason=None)
+                 fallback_reason=None, validation_errors=[])
     return state
 
 
@@ -253,21 +266,34 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                 storage = IndexStorage(runtime.index_db_path, read_only=True)
                 index_root, index_revision = storage.snapshot_identity()
             except (OSError, sqlite3.Error):
-                raise ValueError("source_snapshot_unverified") from None
+                raise SourceSnapshotUnverifiedError("source_snapshot_unverified") from None
             if not revision or index_revision != revision or not index_root or runtime.repo_root.resolve() != Path(index_root).resolve():
-                raise ValueError("source_snapshot_unverified")
+                raise SourceSnapshotUnverifiedError("source_snapshot_unverified")
             graph = payload.get("graph_context") or {}
             snapshot = {"repository": str(runtime.repo_root.resolve()), "revision": revision,
                         "index_root": index_root, "index_revision": index_revision,
                         "graph_generation": ({"lastCommit": graph.get("indexed_revision"), "indexedAt": graph.get("indexed_at")}
                                              if graph.get("indexed_at") else None)}
             journal.put("snapshot", snapshot)
-        tools = EvidenceTools(runtime.repo_root, runtime.index_db_path, settings, snapshot)
+        try:
+            tools = EvidenceTools(runtime.repo_root, runtime.index_db_path, settings, snapshot)
+        except ValueError as exc:
+            if type(exc) is ValueError and str(exc) == "index_unavailable":
+                raise SourceSnapshotUnverifiedError("source_snapshot_unverified") from None
+            raise
         tools.restore_graph_symbols(journal.get("graph_symbols") or (payload.get("graph_context") or {}).get("symbols", []))
 
         def stop(state, reason):
             return {"investigation_progress": {**state.get("investigation_progress", {}), "stop_reason": reason},
                     "execution_budget": journal.budget()}
+
+        async def validation_stop(state, diagnostic):
+            reason = ("evidence_validation_failed" if diagnostic.stage == "evidence_retrieval"
+                      else "prompt_limit" if diagnostic.issues[0].code == "prompt_limit" else "llm_invalid_response")
+            result = stop(state, reason)
+            result["validation_errors"] = state.get("validation_errors", []) + [diagnostic.model_dump(mode="json")]
+            await publish(dict(state) | result)
+            return result
 
         async def publish(state):
             if runtime.heartbeat:
@@ -295,16 +321,23 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     async with asyncio.timeout(max(0.001, journal.budget()["deadline"] - time.time())):
                         response = await get_client(settings).complete(prompt=prompt, system_prompt=SYSTEM_PROMPT,
                                                                        response_schema=strict_schema())
-                    if len(response.encode()) > MAX_EVIDENCE_BYTES:
-                        raise ValueError("invalid_decision")
-                    decision = InvestigationDecision.model_validate_json(response, strict=True)
+                    if isinstance(response, str) and len(response.encode()) > MAX_EVIDENCE_BYTES:
+                        raise validation_failure(stage="investigation_assessment", kind="limit",
+                                                 code="response_too_large", model_call=journal.budget()["model_calls"])
+                    decision = validate_response(response, InvestigationDecision,
+                        stage="investigation_assessment", model_call=journal.budget()["model_calls"])
                     shown = json.loads(prompt)["evidence"]
                     known = {item["id"] for item in shown}
                     known.update(ref for hypothesis in state.get("working_hypotheses", [])
                                  for name in ("evidence_refs", "contradicting_evidence_refs")
                                  for ref in hypothesis.get(name, []))
-                    if any(set(h.evidence_refs + h.contradicting_evidence_refs) - known for h in decision.hypotheses):
-                        raise ValueError("invalid_evidence_reference")
+                    for index, hypothesis in enumerate(decision.hypotheses):
+                        for field in ("evidence_refs", "contradicting_evidence_refs"):
+                            for ref_index, ref in enumerate(getattr(hypothesis, field)):
+                                if ref not in known:
+                                    raise validation_failure(stage="investigation_assessment", kind="semantic",
+                                        code="invalid_evidence_reference", model_call=journal.budget()["model_calls"],
+                                        path=["hypotheses", index, field, ref_index])
                     saved = {"decision": redact(decision.model_dump(mode="json"), settings),
                              "duration_ms": round((time.monotonic() - started) * 1000, 2)}
                     journal.put(key, saved)
@@ -312,10 +345,18 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     raise
                 except TimeoutError:
                     return stop(state, "deadline")
-                except (ValidationError, ValueError):
-                    return stop(state, "llm_invalid_response")
+                except AnalysisValidationFailure as exc:
+                    if exc.diagnostic.model_call is None:
+                        exc.diagnostic.model_call = journal.budget()["model_calls"]
+                    journal.put(key, {"validation_error": exc.diagnostic.model_dump(mode="json")})
+                    return await validation_stop(state, exc.diagnostic)
+                except ValidationError as exc:
+                    return await validation_stop(state, schema_diagnostic(exc, InvestigationDecision,
+                        stage="investigation_assessment", model_call=journal.budget()["model_calls"]))
                 except Exception:  # noqa: BLE001 -- Provider errors must not leak response bodies or credentials.
                     return stop(state, "llm_request_failed")
+            if "validation_error" in saved:
+                return await validation_stop(state, AnalysisValidationError.model_validate(saved["validation_error"]))
             decision = saved["decision"]
             event = InvestigationEvent(id=key, kind="assessment", status="completed", duration_ms=saved["duration_ms"])
             return {"assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
@@ -367,6 +408,11 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                         outcome = await tools.execute(request, key)
                 except asyncio.CancelledError:
                     raise
+                except ValidationError as exc:
+                    diagnostic = schema_diagnostic(exc, ToolOutcome, stage="evidence_retrieval",
+                                                   request_id=key)
+                    outcome = ToolOutcome(request_id=key, tool=request.tool, status="invalid",
+                                          reason="evidence_validation_failed", validation_error=diagnostic)
                 except TimeoutError:
                     outcome = ToolOutcome(request_id=key, tool=request.tool, status="unavailable", reason="retrieval_timeout")
                 except Exception:  # noqa: BLE001 -- Optional retrieval failures preserve provisional findings.
@@ -421,6 +467,10 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                       "source_snapshot": dict(tools.snapshot), "execution_budget": journal.budget(),
                       "investigation_progress": progress,
                       "graph_context": _merge_graph(state.get("graph_context"), outcome.graph_context)}
+            if outcome.validation_error:
+                result["validation_errors"] = state.get("validation_errors", []) + [outcome.validation_error.model_dump(mode="json")]
+                if outcome.reason == "evidence_validation_failed":
+                    result["investigation_progress"]["stop_reason"] = "evidence_validation_failed"
             await publish(dict(state) | result)
             return result
 

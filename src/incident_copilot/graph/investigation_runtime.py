@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+class SourceSnapshotUnverifiedError(ValueError):
+    """The indexed repository cannot be verified for iterative evidence retrieval."""
+
+
 @dataclass(frozen=True)
 class InvestigationRuntime:
     repo_root: Path

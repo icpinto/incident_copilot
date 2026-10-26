@@ -118,6 +118,103 @@ async def test_later_model_failure_retains_last_valid_assessment(case, monkeypat
     assert result["investigation"]["incomplete"]
     assert result["investigation"]["stop_reason"] in {"llm_invalid_response", "llm_request_failed"}
     assert "do-not-export-provider-errors" not in json.dumps(result)
+    if failure != "offline":
+        diagnostic = result["validation_errors"][0]
+        assert diagnostic["model_call"] == 2
+        assert diagnostic["kind"] == ("json" if failure == "malformed" else "semantic")
+        if failure == "unknown_citation":
+            assert diagnostic["issues"][0]["path"] == ["hypotheses", 0, "evidence_refs", 0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("failure", "kind", "code", "path"), [
+    ("malformed", "json", "json_invalid", []),
+    ("missing", "schema", "missing", ["hypotheses", 0, "confidence"]),
+    ("type", "schema", "float_type", ["hypotheses", 0, "confidence"]),
+    ("bounds", "schema", "less_than_equal", ["hypotheses", 0, "confidence"]),
+    ("action", "semantic", "action_request_mismatch", []),
+    ("ranks", "semantic", "invalid_ranks", []),
+    ("request", "semantic", "query_required", ["requests", 0]),
+    ("citation", "semantic", "invalid_evidence_reference", ["hypotheses", 0, "evidence_refs", 0]),
+    ("size", "limit", "response_too_large", []),
+])
+async def test_validation_details_stream_export_and_survive_resume(case, monkeypatch, failure, kind, code, path):
+    from dataclasses import replace
+
+    from incident_copilot.reporting.markdown_renderer import render_markdown
+    from incident_copilot.reporting.report_builder import build_report
+
+    _, _, settings, payload, runtime = case
+    updates = []
+    async def progress(update):
+        updates.append(update)
+    runtime = replace(runtime, progress=progress)
+    calls = 0
+    class Model:
+        async def complete(self, **kwargs):
+            nonlocal calls
+            calls += 1
+            data = json.loads(response(kwargs["prompt"]))
+            hypothesis = data["hypotheses"][0]
+            if failure == "malformed":
+                return "private-response-sentinel"
+            if failure == "missing":
+                hypothesis.pop("confidence")
+            elif failure == "type":
+                hypothesis["confidence"] = "private-response-sentinel"
+            elif failure == "bounds":
+                hypothesis["confidence"] = 2
+            elif failure == "action":
+                data["action"] = "retrieve"
+            elif failure == "ranks":
+                hypothesis["rank"] = 2
+            elif failure == "request":
+                data["action"] = "retrieve"
+                data["requests"] = [{"tool": "find_symbols", "question": "Where?"}]
+            elif failure == "citation":
+                hypothesis["evidence_refs"] = ["private-response-sentinel"]
+            elif failure == "size":
+                return "private-response-sentinel" * 4096
+            return json.dumps(data)
+
+    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    result = await run_diagnosis_graph(payload, settings, runtime)
+    diagnostic = result["validation_errors"][0]
+    assert diagnostic["stage"] == "investigation_assessment"
+    assert diagnostic["kind"] == kind and diagnostic["model_call"] == 1
+    assert diagnostic["issues"][0]["code"] == code
+    assert diagnostic["issues"][0]["path"] == path
+    assert any(update.get("validation_errors") == [diagnostic] for update in updates)
+    report = build_report(result)
+    assert code in render_markdown(report)
+    assert "private-response-sentinel" not in report.model_dump_json()
+    resumed = await run_diagnosis_graph(payload, settings, runtime)
+    assert resumed["validation_errors"] == [diagnostic]
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_evidence_validation_errors_are_visible_and_preserve_assessment(case, monkeypatch):
+    _, _, settings, payload, runtime = case
+    class Model:
+        async def complete(self, **kwargs):
+            return response(kwargs["prompt"], [{"tool": "read_source", "question": "Inspect source", "file_path": "cache.py"}])
+
+    def invalid_source(self, request, request_id):
+        return [EvidenceItem.model_validate({"id": "source", "kind": "source",
+            "repository": "repo", "revision": "a" * 40, "line_start": "private-sentinel"})]
+
+    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation.EvidenceTools, "_read_source", invalid_source)
+    result = await run_diagnosis_graph(payload, settings, runtime)
+    diagnostic = result["validation_errors"][0]
+    assert diagnostic["stage"] == "evidence_retrieval"
+    assert diagnostic["request_id"].startswith("request-")
+    assert diagnostic["issues"][0]["path"] == ["line_start"]
+    assert diagnostic["issues"][0]["code"] == "int_parsing"
+    assert result["engine"] == "deterministic+llm"
+    assert result["investigation"]["stop_reason"] == "evidence_validation_failed"
+    assert "private-sentinel" not in json.dumps(result)
 
 
 @pytest.mark.asyncio

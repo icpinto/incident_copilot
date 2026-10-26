@@ -26,7 +26,9 @@ try {
   } else {
     const revision = cleanRevision();
     rmSync(marker, { force: true });
-    execFileSync('gitnexus', ['analyze', root, '--index-only', '--skip-embeddings', '--skip-fts'], { stdio: 'inherit' });
+    // GitNexus 1.6.12 disables embedding generation by default; explicitly
+    // discard retained embeddings when refreshing this graph-only index.
+    execFileSync('gitnexus', ['analyze', root, '--index-only', '--drop-embeddings', '--skip-fts'], { stdio: 'inherit' });
     if (cleanRevision() !== revision) throw new Error('Checkout changed during indexing. Prepare it again.');
     writeFileSync(marker + '.tmp', JSON.stringify({ repository: root, revision, provider_version: version }));
     renameSync(marker + '.tmp', marker);

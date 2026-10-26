@@ -36,6 +36,8 @@ Temporal keeps its four stages. The reasoning stage runs the graph and sends hea
 
 A later model failure preserves the latest valid hypotheses and marks the investigation incomplete. If no valid assessment exists, the deterministic fallback remains available. Old reports without investigation fields continue to render. JSON and Markdown exports include investigation evidence and citations alongside the diagnosis.
 
+Validation failures also appear in the incident's **Analysis validation errors** panel, including while analysis is running. Reports and streamed evidence include a typed `validation_errors` list with the stage, failure kind (`json`, `schema`, `semantic`, or `limit`), model call or evidence request, and individual field paths, codes, and explanations. Invalid JSON, missing or mistyped fields, numeric bounds, inconsistent decisions, invalid citations, and evidence response validation are reported separately. Earlier valid hypotheses remain available when a later response fails validation. Checkpoints and exports preserve these diagnostics. Each failure includes up to 30 issues and the total issue count; rejected values and raw exception context are excluded.
+
 ## Comparing outcomes
 
 Run `python -m incident_copilot.evaluation.benchmark_runner --repo-root <path> --log-file <logs> --output <report.json>` to generate the paired benchmark. It indexes and localizes once, retains the existing graph-enrichment comparison, and adds an iterative arm starting from the same graph-enriched evidence as the single-pass arm.

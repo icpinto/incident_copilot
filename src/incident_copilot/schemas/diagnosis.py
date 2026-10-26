@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from incident_copilot.schemas.validation import AnalysisValidationError
+
 from .candidates import CandidateLocation
 from .code_graph import GraphContext
 from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
@@ -30,3 +32,4 @@ class DiagnosisReport(BaseModel):
     retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
+    validation_errors: list[AnalysisValidationError] = Field(default_factory=list)

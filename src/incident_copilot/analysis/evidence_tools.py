@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from incident_copilot.analysis.code_graph import (
     MAX_RELATED_SYMBOLS,
     GraphEvidenceError,
@@ -22,6 +24,7 @@ from incident_copilot.analysis.code_graph import (
 )
 from incident_copilot.core.settings import Settings
 from incident_copilot.indexing.storage import IndexStorage
+from incident_copilot.llm.validation import schema_diagnostic, validation_failure
 from incident_copilot.schemas.index import FileRecord
 from incident_copilot.schemas.investigation import (
     EvidenceItem,
@@ -343,6 +346,9 @@ class EvidenceTools:
         if len(_encoded(outcome.model_dump(mode="json"))) > MAX_TOOL_BYTES:
             outcome.graph_context = None
             outcome.reason = "response_clipped"
+        while (outcome.validation_error and len(outcome.validation_error.issues) > 1
+               and len(_encoded(outcome.model_dump(mode="json"))) > MAX_TOOL_BYTES):
+            outcome.validation_error.issues.pop()
         if not outcome.evidence and outcome.status == "ok":
             outcome.status = "empty"
         return outcome
@@ -364,11 +370,21 @@ class EvidenceTools:
                 status="unavailable" if reason else "ok" if evidence else "empty",
                 reason=reason, evidence=evidence, graph_context=graph_context,
             )
+        except ValidationError as exc:
+            outcome = ToolOutcome(request_id=request_id, tool=request.tool, status="invalid",
+                reason="evidence_validation_failed", validation_error=schema_diagnostic(
+                    exc, ToolOutcome, stage="evidence_retrieval", request_id=request_id))
         except ValueError as exc:
             allowed = {"source_changed", "source_snapshot_mismatch", "index_unavailable", "invalid_source_location",
                        "unindexed_source_location", "unverified_symbol"}
             outcome = ToolOutcome(request_id=request_id, tool=request.tool, status="invalid",
                                   reason=str(exc) if str(exc) in allowed else "invalid_evidence_request")
+            if outcome.reason is not None and outcome.reason in {
+                "invalid_source_location", "unindexed_source_location", "unverified_symbol", "invalid_evidence_request",
+            }:
+                field = "symbol" if request.symbol else "file_path"
+                outcome.validation_error = validation_failure(stage="evidence_retrieval", kind="semantic",
+                    code=outcome.reason, path=[field], request_id=request_id).diagnostic
         except (OSError, sqlite3.Error):
             outcome = ToolOutcome(request_id=request_id, tool=request.tool, status="unavailable", reason="source_unavailable")
         outcome.duration_ms = round((time.monotonic() - started) * 1000, 2)

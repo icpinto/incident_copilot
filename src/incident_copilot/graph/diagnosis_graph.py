@@ -1,5 +1,6 @@
-from typing import Any, Dict
+from typing import Any
 
+from incident_copilot.graph.investigation_runtime import SourceSnapshotUnverifiedError
 from incident_copilot.graph.nodes.enrich_candidates import enrich_candidates_node
 from incident_copilot.graph.nodes.finalize_report import finalize_report_node
 from incident_copilot.graph.nodes.normalize_logs import normalize_logs_node
@@ -15,7 +16,7 @@ from .nodes.build_hypotheses import build_hypotheses_node
 from .state import DiagnosisState
 
 
-async def run_diagnosis_graph(payload: Dict[str, Any], runtime_settings=None, runtime_context=None) -> DiagnosisState:
+async def run_diagnosis_graph(payload: dict[str, Any], runtime_settings=None, runtime_context=None) -> DiagnosisState:
     if runtime_settings is not None and getattr(runtime_settings, "agentic_enabled", False):
         reason = None
         if runtime_context is None:
@@ -26,7 +27,7 @@ async def run_diagnosis_graph(payload: Dict[str, Any], runtime_settings=None, ru
                 return await run_investigation(payload, runtime_settings, runtime_context)
             except ImportError:
                 reason = "agentic_dependency_unavailable"
-            except ValueError:
+            except SourceSnapshotUnverifiedError:
                 reason = "source_snapshot_unverified"
         # Preserve the established single-pass path and explicitly report the downgrade.
         fallback_settings = runtime_settings.model_copy(update={"agentic_enabled": False})

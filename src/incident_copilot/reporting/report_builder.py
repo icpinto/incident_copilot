@@ -14,6 +14,7 @@ def build_report(graph_state: dict) -> DiagnosisReport:
         summary=graph_state.get("summary", "No summary generated."),
         engine=graph_state.get("engine", "deterministic"),
         fallback_reason=graph_state.get("fallback_reason"),
+        validation_errors=graph_state.get("validation_errors", []),
         graph_context=graph_state.get("graph_context"),
         retrieved_evidence=graph_state.get("retrieved_evidence", []),
         investigation=graph_state.get("investigation"),

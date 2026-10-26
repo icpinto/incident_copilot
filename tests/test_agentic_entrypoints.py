@@ -157,13 +157,18 @@ async def test_dashboard_progress_is_saved_and_survives_final_stage_write(tmp_pa
     run = service.submit(IncidentSubmission(repository_id="repo", log_text="ValueError"))
     summary = {"rounds": 1, "model_calls": 2, "tool_calls": 1, "stop_reason": "finished"}
     retrieved = [{"id": "evidence", "kind": "source", "repository": str(tmp_path), "revision": "test"}]
+    validation_errors = [{"stage": "investigation_assessment", "kind": "json", "model_call": 2,
+                          "issues": [{"path": [], "code": "json_invalid", "message": "Response is not valid JSON."}],
+                          "total_issues": 1}]
 
     async def diagnose(payload, settings, runtime_context=None):
         assert runtime_context.execution_id == run.id
-        await runtime_context.progress({"investigation": summary, "retrieved_evidence": retrieved})
+        await runtime_context.progress({"investigation": summary, "retrieved_evidence": retrieved,
+                                        "validation_errors": validation_errors})
         snapshot = service.store.get("incidents", run.id)
         assert snapshot["evidence"]["raw_log"] == "ValueError"
         assert snapshot["evidence"]["retrieved_evidence"] == retrieved
+        assert snapshot["evidence"]["validation_errors"] == validation_errors
         return {**payload, "hypotheses": [], "summary": "Investigated"}
 
     monkeypatch.setattr(activities, "run_diagnosis_graph", diagnose)
@@ -171,6 +176,7 @@ async def test_dashboard_progress_is_saved_and_survives_final_stage_write(tmp_pa
     saved = service.store.get("incidents", run.id)
     assert saved["evidence"]["investigation"] == summary
     assert saved["evidence"]["retrieved_evidence"] == retrieved
+    assert saved["evidence"]["validation_errors"] == validation_errors
     assert saved["timeline"][0]["completed_at"]
 
 

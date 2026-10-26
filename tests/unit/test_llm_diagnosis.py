@@ -135,10 +135,15 @@ async def test_invalid_output_falls_back_and_records_safe_reason(monkeypatch, ca
         report = build_report(await run_diagnosis_graph(state()))
     assert report.engine == "deterministic"
     assert report.fallback_reason == "llm_invalid_response"
+    assert report.validation_errors
+    assert report.validation_errors[0].stage == "hypothesis_generation"
+    assert report.validation_errors[0].model_call == 1
     assert report.hypotheses[0].title == "Likely issue in main.py"
     assert "llm_invalid_response" in render_markdown(report)
     assert "llm_invalid_response" in caplog.text
     assert "private-key-sentinel" not in caplog.text
+    assert "private-key-sentinel" not in report.model_dump_json()
+    assert "Analysis Validation Errors" in render_markdown(report)
 
 
 @pytest.mark.asyncio

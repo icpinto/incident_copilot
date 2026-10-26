@@ -13,6 +13,7 @@ class DiagnosisState(TypedDict, total=False):
     summary: str
     engine: str
     fallback_reason: str | None
+    validation_errors: list[dict[str, Any]]
     candidate_limit: int
     execution_id: str
     source_snapshot: dict[str, Any]

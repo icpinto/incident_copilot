@@ -8,6 +8,7 @@ import { Badge, duration, elapsed, Empty, ErrorNotice, ExportLinks, IncidentTabl
 import { isActive, type Incident, type IncidentPage, type Repository } from '../types';
 import { chartTooltip } from './Overview';
 import { Investigation } from '../Investigation';
+import { ValidationErrors } from '../ValidationErrors';
 
 export function Incidents() {
   const [params, setParams] = useSearchParams();
@@ -62,6 +63,7 @@ export function IncidentDetail() {
   const investigationEvents = report?.investigation_events || run.evidence.investigation_events || [];
   return <><Link className="back-link" to="/incidents"><ArrowLeft size={14} />All incidents</Link><PageHeading eyebrow={`INCIDENT / ${run.id.slice(0, 8).toUpperCase()}`} title={run.title} description={`${run.repository_name} · Submitted ${time(run.created_at)}`} action={<div className="button-group">{report && <ExportLinks id={run.id} />}{isActive(run) && <button className="button" disabled={cancel.isPending} onClick={() => cancel.mutate()}>{cancel.isPending ? "Canceling?" : "Cancel analysis"}</button>}<button className="button" disabled={isActive(run) || rerun.isPending} onClick={() => rerun.mutate()}><RotateCw size={14} />Rerun</button></div>} /><ErrorNotice error={query.error || rerun.error || cancel.error || run.error} />{run.connection_error && <Notice>{run.connection_error}</Notice>}
     <div className="run-summary"><Badge status={run.status} /><span><GitBranch size={14} />{report?.likely_service || 'Service pending'}</span><span><FileText size={14} />{report?.likely_error_class || 'Error class pending'}</span><span className="mono">{duration(elapsed(run.created_at, run.completed_at))}</span><span className="engine-chip">{report?.engine === 'deterministic+llm' ? 'LLM assisted' : report ? 'Deterministic analysis' : 'Temporal workflow'}</span></div>
+    <ValidationErrors errors={report?.validation_errors?.length ? report.validation_errors : run.evidence.validation_errors} />
     <div className="tabs" role="tablist" aria-label="Analysis views">{[['diagnosis', 'Diagnosis'], ['evidence', `Source evidence (${candidates.length})`], ['logs', 'Logs & trace'], ['execution', 'Run details']].map(([key, label]) => <button id={`tab-${key}`} role="tab" aria-selected={tab === key} aria-controls={`panel-${key}`} tabIndex={tab === key ? 0 : -1} key={key} onClick={() => setTab(key)} onKeyDown={e => { const keys = ['diagnosis', 'evidence', 'logs', 'execution']; if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = keys[(keys.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : 3)) % 4]; setTab(next); document.getElementById(`tab-${next}`)?.focus(); } }}>{label}</button>)}</div>
     <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
     {(tab === 'diagnosis' || tab === 'evidence' || tab === 'execution') && <Investigation summary={investigation} evidence={retrievedEvidence} events={investigationEvents} />}

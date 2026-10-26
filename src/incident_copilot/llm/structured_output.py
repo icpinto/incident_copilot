@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
+from incident_copilot.llm.validation import SEMANTIC_MESSAGES
 from incident_copilot.schemas.diagnosis import Hypothesis
 
 
@@ -22,8 +24,8 @@ class HypothesesResponse(BaseModel):
     @classmethod
     def ordered_ranks(cls, hypotheses: list[Hypothesis]) -> list[Hypothesis]:
         if any(item.evidence_refs for item in hypotheses):
-            raise ValueError("Single-pass generation cannot cite uncollected investigation evidence")
+            raise PydanticCustomError("uncollected_evidence", SEMANTIC_MESSAGES["uncollected_evidence"])
         hypotheses = sorted(hypotheses, key=lambda item: item.rank)
         if [item.rank for item in hypotheses] != list(range(1, len(hypotheses) + 1)):
-            raise ValueError("Hypothesis ranks must be unique and contiguous, starting at 1")
+            raise PydanticCustomError("invalid_ranks", SEMANTIC_MESSAGES["invalid_ranks"])
         return hypotheses

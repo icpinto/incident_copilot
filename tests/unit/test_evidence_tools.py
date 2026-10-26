@@ -105,6 +105,10 @@ async def test_untrusted_paths_are_rejected(tools, path):
     (tools.root / "unindexed.py").write_text("pass", encoding="utf-8")
     result = await tools.execute(request("read_source", file_path=path), "r1")
     assert result.status == "invalid" and result.evidence == []
+    assert result.validation_error.stage == "evidence_retrieval"
+    assert result.validation_error.kind == "semantic"
+    assert result.validation_error.issues[0].path == ["file_path"]
+    assert result.validation_error.issues[0].code == result.reason
 
 
 @pytest.mark.asyncio
@@ -112,6 +116,7 @@ async def test_unverified_duplicate_symbol_range_is_rejected(tools):
     symbol = get_symbol().model_copy(update={"line_start": 4, "line_end": 5})
     result = await tools.execute(request("read_source", symbol=symbol), "r1")
     assert result.status == "invalid" and result.reason == "unverified_symbol"
+    assert result.validation_error.issues[0].path == ["symbol"]
 
 
 @pytest.mark.asyncio

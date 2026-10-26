@@ -4,6 +4,9 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
+
+from incident_copilot.schemas.validation import AnalysisValidationError
 
 EvidenceToolName = Literal[
     "find_symbols", "read_source", "get_related_calls", "search_source", "get_file_context",
@@ -23,7 +26,7 @@ class SymbolReference(InvestigationRecord):
     @model_validator(mode="after")
     def valid_range(self):
         if self.line_end < self.line_start:
-            raise ValueError("invalid_line_range")
+            raise PydanticCustomError("invalid_line_range", "invalid_line_range")
         return self
 
 
@@ -44,17 +47,17 @@ class EvidenceRequest(InvestigationRecord):
     @model_validator(mode="after")
     def valid_arguments(self):
         if self.tool in {"find_symbols", "search_source"} and not self.query:
-            raise ValueError("query_required")
+            raise PydanticCustomError("query_required", "query_required")
         if self.tool == "get_related_calls" and self.symbol is None:
-            raise ValueError("symbol_required")
+            raise PydanticCustomError("symbol_required", "symbol_required")
         if self.tool == "get_file_context" and not self.file_path:
-            raise ValueError("file_path_required")
+            raise PydanticCustomError("file_path_required", "file_path_required")
         if self.tool == "read_source" and self.symbol is None and not self.file_path:
-            raise ValueError("source_location_required")
+            raise PydanticCustomError("source_location_required", "source_location_required")
         if self.line_end is not None and self.line_end < (self.line_start or 1):
-            raise ValueError("invalid_line_range")
+            raise PydanticCustomError("invalid_line_range", "invalid_line_range")
         if self.symbol is not None and self.file_path and self.file_path != self.symbol.file_path:
-            raise ValueError("conflicting_source_location")
+            raise PydanticCustomError("conflicting_source_location", "conflicting_source_location")
         return self
 
 
@@ -81,6 +84,7 @@ class ToolOutcome(InvestigationRecord):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     graph_context: dict[str, Any] | None = None
     duration_ms: float = Field(default=0, ge=0)
+    validation_error: AnalysisValidationError | None = None
 
 
 class InvestigationSummary(InvestigationRecord):

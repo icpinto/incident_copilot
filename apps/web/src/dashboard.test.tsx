@@ -95,6 +95,21 @@ describe('dashboard workflows', () => {
     expect(screen.getByText('Repository indexing')).toBeInTheDocument();
   });
 
+  it.each(['running', 'completed'] as const)('shows typed validation errors for a %s analysis', async status => {
+    const errors = [{ stage: 'investigation_assessment', kind: 'schema', model_call: 2, total_issues: 1,
+      issues: [{ path: ['hypotheses', 0, 'confidence'], code: 'float_type', message: 'Expected a number.' }] }];
+    mockFetch(() => ({ ...run, status, report: status === 'completed' ? { ...run.report, engine: 'deterministic+llm', validation_errors: errors } : null,
+      evidence: { ...run.evidence, validation_errors: errors } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    const alert = await screen.findByRole('alert', { name: 'Analysis validation errors' });
+    expect(alert).toHaveTextContent('hypotheses.0.confidence');
+    expect(alert).toHaveTextContent('float_type');
+    expect(alert).toHaveTextContent('Expected a number.');
+    expect(alert).toHaveTextContent('Model call 2');
+    await userEvent.click(screen.getByRole('tab', { name: 'Logs & trace' }));
+    expect(alert).toBeVisible();
+  });
+
   it('refreshes active progress and stops polling after completion', async () => {
     let calls = 0;
     mockFetch(() => { calls++; return calls === 1 ? { ...run, status: 'queued', stage: 'queued', report: null } : run; });

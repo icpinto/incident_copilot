@@ -15,6 +15,20 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
     ]
     if report.fallback_reason:
         parts.append(f"- Fallback reason: `{report.fallback_reason}`")
+    if report.validation_errors:
+        parts.extend(["", "## Analysis Validation Errors", ""])
+        for failure in report.validation_errors:
+            context = failure.stage.replace("_", " ")
+            if failure.model_call is not None:
+                context += f"; model call {failure.model_call}"
+            if failure.request_id:
+                context += f"; request {failure.request_id}"
+            parts.append(f"- {context} ({failure.kind})")
+            for issue in failure.issues:
+                path = ".".join(str(part) for part in issue.path) or "$"
+                parts.append(f"  - `{path}`: `{issue.code}` — {issue.message}")
+            if failure.total_issues > len(failure.issues):
+                parts.append(f"  - {failure.total_issues - len(failure.issues)} additional errors omitted.")
     if report.investigation is not None:
         investigation = report.investigation
         parts.extend([

@@ -3,12 +3,18 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from incident_copilot.schemas.diagnosis import DiagnosisReport
+
 from incident_copilot.schemas.candidates import CandidateLocation
-from incident_copilot.schemas.logs import ParsedLog
-from incident_copilot.schemas.index import RepoIndexSummary
 from incident_copilot.schemas.code_graph import GraphContext
-from incident_copilot.schemas.investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
+from incident_copilot.schemas.diagnosis import DiagnosisReport
+from incident_copilot.schemas.index import RepoIndexSummary
+from incident_copilot.schemas.investigation import (
+    EvidenceItem,
+    InvestigationEvent,
+    InvestigationSummary,
+)
+from incident_copilot.schemas.logs import ParsedLog
+from incident_copilot.schemas.validation import AnalysisValidationError
 
 
 class RepositoryInput(BaseModel):
@@ -55,6 +61,7 @@ class IncidentEvidence(BaseModel):
     retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
+    validation_errors: list[AnalysisValidationError] = Field(default_factory=list)
 
 
 class IncidentRecord(BaseModel):
