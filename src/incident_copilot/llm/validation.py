@@ -15,6 +15,7 @@ T = TypeVar("T", bound=BaseModel)
 
 # Custom validators use these stable codes instead of unstructured ValueError text.
 SEMANTIC_MESSAGES = {
+    "provisional_requires_hypothesis": "A provisional diagnosis requires at least one causal hypothesis.",
     "action_request_mismatch": "Action must be retrieve with requests, or finish without requests.",
     "invalid_ranks": "Hypothesis ranks must be unique and consecutive, starting at 1.",
     "duplicate_hypothesis_id": "Each hypothesis must have a unique ID.",

@@ -6,7 +6,8 @@ def finalize_report_node(state: DiagnosisState) -> DiagnosisState:
     likely_error_class = state.get("likely_error_class") or "unknown"
     count = len(state.get("candidates", []))
     state["summary"] = (
-        f"The incident was localized to {count} strong candidate locations. "
+        f"Source correlation returned {count} candidate locations. "
+        f"Diagnosis outcome: {state.get('diagnosis_status', 'unknown').replace('_', ' ')}. "
         f"Most likely service: {likely_service}. "
         f"Most likely error class: {likely_error_class}."
     )

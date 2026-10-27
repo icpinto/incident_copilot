@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from incident_copilot.schemas.validation import AnalysisValidationError
 
@@ -16,8 +18,24 @@ class Hypothesis(BaseModel):
     explanation: str
     evidence: list[str]
     evidence_refs: list[str] = Field(default_factory=list)
-    confidence: float = Field(ge=0, le=1)
+    confidence: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    confidence_status: Literal["unavailable", "uncalibrated", "calibrated"] = "unavailable"
+    model_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     next_checks: list[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def historical_confidence(cls, value):
+        if isinstance(value, dict) and "confidence_status" not in value:
+            value = dict(value)
+            value["confidence_status"] = "uncalibrated" if value.get("confidence") is not None else "unavailable"
+        return value
+
+    @model_validator(mode="after")
+    def coherent_confidence(self):
+        if (self.confidence_status == "unavailable") != (self.confidence is None):
+            raise ValueError("Confidence must be null exactly when its status is unavailable.")
+        return self
 
 
 class DiagnosisReport(BaseModel):
@@ -27,6 +45,9 @@ class DiagnosisReport(BaseModel):
     candidates: list[CandidateLocation]
     hypotheses: list[Hypothesis]
     summary: str
+    diagnosis_status: Literal["provisional", "insufficient_evidence", "unknown"] = "unknown"
+    diagnosis_reason: str | None = None
+    next_checks: list[str] = Field(default_factory=list)
     incident_context: IncidentContext | None = None
     engine: str = "deterministic+llm"
     fallback_reason: str | None = None

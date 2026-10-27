@@ -15,6 +15,12 @@ from incident_copilot.core.settings import Settings
 from incident_copilot.workflows import temporal_activities, temporal_workflows
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
 
+OUTCOME = {
+    "diagnosis_status": "provisional",
+    "diagnosis_reason": "The incident evidence supports this provisional causal mechanism.",
+    "next_checks": ["Verify against the failing runtime input"],
+}
+
 
 @pytest.mark.parametrize("field,value", [
     ("agentic_max_rounds", 4), ("agentic_max_rounds", 0),
@@ -209,6 +215,7 @@ def test_enabled_entrypoints_share_investigation_and_initial_analysis(
             assert any(e["kind"] == "file_analysis" for e in prompt["evidence"])
             reference = prompt["evidence"][0]["id"]
             return json.dumps({
+                **OUTCOME,
                 "action": "finish", "requests": [], "unresolved_gaps": [], "hypotheses": [{
                     "id": "failure", "rank": 1, "title": "Inspect charge failure",
                     "explanation": "The indexed charge function raises ValueError.",

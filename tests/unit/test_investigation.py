@@ -11,6 +11,12 @@ from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
 from incident_copilot.schemas.investigation import EvidenceItem, ToolOutcome
 
+OUTCOME = {
+    "diagnosis_status": "provisional",
+    "diagnosis_reason": "The incident evidence supports this provisional causal mechanism.",
+    "next_checks": ["Verify against the failing runtime input"],
+}
+
 
 @pytest.fixture
 def case(tmp_path, monkeypatch):
@@ -33,7 +39,7 @@ def case(tmp_path, monkeypatch):
 
 def response(prompt, requests=None, *, refs=None, title="Cache path handling", gaps=None):
     data = json.loads(prompt)
-    return json.dumps({"action": "retrieve" if requests else "finish", "requests": requests or [],
+    return json.dumps({**OUTCOME, "action": "retrieve" if requests else "finish", "requests": requests or [],
         "unresolved_gaps": gaps or [], "hypotheses": [{"id": "h1", "rank": 1, "title": title,
         "explanation": "The available evidence points to path handling; runtime causation needs confirmation.",
         "evidence": ["Retrieved source and incident logs"], "confidence": 0.6,
@@ -61,7 +67,7 @@ async def test_call_discovery_read_source_and_revise_hypothesis(case, monkeypatc
             # Ollama's decoding schema does not teach the model the response
             # shape. Supply the same contract in the prompt on every round.
             assert prompts[-1]["response_schema"] == kwargs["response_schema"]
-            assert prompts[-1]["response_schema"]["properties"]["hypotheses"]["minItems"] == 1
+            assert prompts[-1]["response_schema"]["properties"]["hypotheses"]["minItems"] == 0
             if len(prompts) == 1:
                 return response(kwargs["prompt"], [{"tool": "get_related_calls", "question": "Which helpers does get call?",
                     "symbol": {"file_path": "cache.py", "name": "get", "line_start": 1, "line_end": 2}}])
@@ -285,7 +291,8 @@ def test_prompt_budget_counts_schema_and_system(case):
 
 
 @pytest.mark.asyncio
-async def test_saved_assessment_survives_crash_and_expired_deadline(case, monkeypatch):
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_saved_assessment_survives_crash_and_expired_deadline(case, monkeypatch, legacy):
     _, _, settings, payload, runtime = case
     calls = 0
     original = investigation.InvestigationStore.put
@@ -300,6 +307,9 @@ async def test_saved_assessment_survives_crash_and_expired_deadline(case, monkey
             return response(kwargs["prompt"])
 
     def crash_after_saving(self, key, value):
+        if legacy and key.startswith("assessment:"):
+            for field in ("diagnosis_status", "diagnosis_reason", "next_checks"):
+                value["decision"].pop(field)
         original(self, key, value)
         if key.startswith("assessment:"):
             raise WorkerCrash()
@@ -319,3 +329,45 @@ async def test_saved_assessment_survives_crash_and_expired_deadline(case, monkey
     assert result["hypotheses"][0]["title"] == "Cache path handling"
     assert result["investigation"]["stop_reason"] == "deadline"
     assert result["investigation"]["model_calls"] == calls == 1
+    assert result["diagnosis_status"] == ("unknown" if legacy else "provisional")
+    assert result["hypotheses"][0]["confidence"] is None
+    assert result["hypotheses"][0]["model_score"] == .6
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tentative_leads", [False, True])
+async def test_retrieval_without_hypotheses_and_explicit_abstention(case, monkeypatch, tentative_leads):
+    _, _, settings, payload, runtime = case
+    calls = 0
+
+    class Model:
+        async def complete(self, **kwargs):
+            nonlocal calls
+            calls += 1
+            requests = [{"tool": "read_source", "question": "What does get do?", "file_path": "cache.py"}] if calls == 1 else []
+            data = json.loads(response(kwargs["prompt"], requests))
+            data.update(diagnosis_status="insufficient_evidence", diagnosis_reason="Need failing runtime input",
+                        next_checks=["Capture the failing input"])
+            if calls == 1 or not tentative_leads:
+                data["hypotheses"] = []
+            return json.dumps(data)
+
+    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    result = await run_diagnosis_graph(payload, settings, runtime)
+    assert calls == 2 and result["investigation"]["tool_calls"] == 1
+    assert result["engine"] == "deterministic+llm" and result["fallback_reason"] is None
+    assert result["diagnosis_status"] == "insufficient_evidence"
+    assert result["next_checks"] == ["Capture the failing input"]
+    assert len(result["hypotheses"]) == int(tentative_leads)
+    assert all(h["confidence"] is None and h["model_score"] == .6 for h in result["hypotheses"])
+    assert result["investigation"]["stop_reason"] == "model_finished"
+    cached = await run_diagnosis_graph(payload, settings, runtime)
+    assert cached == result and calls == 2
+
+
+def test_investigation_rejects_provisional_without_hypotheses():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="provisional_requires_hypothesis"):
+        investigation.InvestigationDecision.model_validate({**OUTCOME, "action": "finish",
+            "hypotheses": [], "requests": [], "unresolved_gaps": []})

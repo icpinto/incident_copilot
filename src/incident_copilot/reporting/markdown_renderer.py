@@ -13,6 +13,11 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         f"- Likely service: `{report.likely_service or 'unknown'}`",
         f"- Likely error class: `{report.likely_error_class or 'unknown'}`",
     ]
+    parts.extend([f"- Diagnosis outcome: {report.diagnosis_status.replace('_', ' ').capitalize()}"])
+    if report.diagnosis_reason:
+        parts.append(f"- Reason: {report.diagnosis_reason}")
+    if report.next_checks:
+        parts.extend(["", "## Next Checks", "", *[f"- {check}" for check in report.next_checks]])
     if report.fallback_reason:
         parts.append(f"- Fallback reason: `{report.fallback_reason}`")
     if report.incident_context is not None:
@@ -67,12 +72,12 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         if investigation.unresolved_gaps:
             parts.extend(["", "Unresolved evidence gaps:"])
             parts.extend(f"- {gap}" for gap in investigation.unresolved_gaps)
-    parts.extend(["", "## Summary", report.summary, "", "## Top Candidates"])
+    parts.extend(["", "## Summary", report.summary, "", "## Localization", "", "Localization strength is a raw correlation score, not a probability."])
     for c in report.candidates:
         parts.extend(
             [
                 f"### `{c.file_path}`",
-                f"- score: {c.score}",
+                f"- Localization strength: {c.score}",
                 f"- symbol: `{c.symbol_name or 'n/a'}`",
                 f"- service: `{c.service_name or 'n/a'}`",
                 f"- reasons: {'; '.join(c.reasons[:6])}",
@@ -111,7 +116,9 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                 f"### {h.rank}. {h.title}",
                 h.explanation,
                 "",
-                f"- confidence: {h.confidence}",
+                (f"- Diagnosis confidence: {h.confidence:.0%} (calibrated)"
+                 if h.confidence_status == "calibrated" and h.confidence is not None
+                 else f"- Diagnosis confidence: {h.confidence_status}; no calibrated probability available"),
                 f"- evidence: {'; '.join(h.evidence)}",
                 f"- next checks: {'; '.join(h.next_checks)}",
                 "",

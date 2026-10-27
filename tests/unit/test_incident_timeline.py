@@ -20,6 +20,13 @@ from incident_copilot.schemas.index import FileRecord, SymbolRecord
 from incident_copilot.workflows.log_context import hydrate_parsed_log, offload_parsed_log
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "incident_timeline" / "correlated.jsonl"
+OUTCOME = {
+    "diagnosis_status": "provisional",
+    "diagnosis_reason": "The incident evidence supports this provisional causal mechanism.",
+    "next_checks": ["Verify against the failing runtime input"],
+}
+
+
 REVISION = "a" * 40
 
 
@@ -263,8 +270,8 @@ async def test_both_reasoning_modes_and_checkpoint_resume_keep_scope(indexed, tm
                 evidence = json.loads(prompt)["evidence"]
                 assert any(e["kind"] == "exception_chain" for e in evidence)
                 h.update(id="h1", evidence_refs=[next(e["id"] for e in evidence if e["kind"] == "log_event")], contradicting_evidence_refs=[])
-                return json.dumps({"action": "finish", "hypotheses": [h], "requests": [], "unresolved_gaps": []})
-            return json.dumps({"hypotheses": [h]})
+                return json.dumps({**OUTCOME, "action": "finish", "hypotheses": [h], "requests": [], "unresolved_gaps": []})
+            return json.dumps({**OUTCOME, "hypotheses": [h]})
 
     monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Model())
     monkeypatch.setattr(investigation, "get_client", lambda *_: Model())

@@ -20,7 +20,7 @@ from incident_copilot.graph.investigation_runtime import (
     SourceSnapshotUnverifiedError,
 )
 from incident_copilot.graph.investigation_store import InvestigationStore, execution_lock
-from incident_copilot.graph.nodes.build_hypotheses import _fallback_hypotheses
+from incident_copilot.graph.nodes.build_hypotheses import fallback_diagnosis
 from incident_copilot.graph.nodes.enrich_candidates import enrich_candidates_node
 from incident_copilot.graph.nodes.finalize_report import finalize_report_node
 from incident_copilot.graph.nodes.normalize_logs import normalize_logs_node
@@ -28,6 +28,7 @@ from incident_copilot.graph.nodes.select_candidates import select_candidates_nod
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.llm.client import get_client
+from incident_copilot.llm.structured_output import report_hypothesis
 from incident_copilot.llm.validation import (
     SEMANTIC_MESSAGES,
     AnalysisValidationFailure,
@@ -35,7 +36,6 @@ from incident_copilot.llm.validation import (
     validate_response,
     validation_failure,
 )
-from incident_copilot.schemas.diagnosis import Hypothesis
 from incident_copilot.schemas.investigation import (
     EvidenceItem,
     EvidenceRequest,
@@ -54,12 +54,17 @@ MAX_MODEL_CALLS = 4
 SYSTEM_PROMPT = """Investigate an application incident using only supplied evidence.
 Return only JSON matching the response schema. Assess competing explanations and
 look for disconfirming evidence. Keep hypothesis IDs stable across rounds.
-Every response must include 1 to 3 provisional hypotheses, even when action is
-retrieve. Never return an empty hypotheses array. Each hypothesis requires id,
+Every response includes diagnosis_status (provisional or insufficient_evidence),
+diagnosis_reason, next_checks, and zero to three hypotheses, including when action is retrieve.
+Provisional requires at least one causal hypothesis explaining a mechanism supported by incident evidence.
+Use insufficient_evidence when evidence cannot support a cause; retain tentative leads if useful.
+A stack-path match establishes location, not cause. Candidate scores and static relationships
+alone do not establish causation. Confidence is a raw model self-assessment, not a probability.
+Each hypothesis requires id,
 rank, title, explanation, evidence, confidence, next_checks, evidence_refs (at
 least one supplied evidence ID), and contradicting_evidence_refs. Use ranks 1
-through the number of hypotheses. Return all four top-level fields: action,
-hypotheses, unresolved_gaps, requests.
+through the number of hypotheses. Include action, hypotheses, unresolved_gaps, requests,
+diagnosis_status, diagnosis_reason, and next_checks.
 Prioritize the observed exception and stack trace. Hypotheses must explain the
 incident logs rather than unrelated potential problems in supplied source files.
 Every hypothesis must cite supplied evidence IDs using evidence_refs; put contrary
@@ -79,8 +84,8 @@ get_file_context reads indexed metadata. Symbol references use file_path, name,
 line_start, line_end exactly as supplied. Resolve ambiguous names before reading.
 Find relevant tests and configuration references when useful; do not execute code,
 invent runtime observations, or request credentials. State unresolved runtime
-questions in unresolved_gaps. Finish with useful provisional hypotheses even when
-the available evidence cannot establish root cause.
+questions in unresolved_gaps. Finish with insufficient_evidence when the available
+evidence cannot support a causal mechanism; include useful next checks.
 """
 
 
@@ -100,12 +105,17 @@ class WorkingHypothesis(BaseModel):
 class InvestigationDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["retrieve", "finish"]
-    hypotheses: list[WorkingHypothesis] = Field(min_length=1, max_length=3)
+    diagnosis_status: Literal["provisional", "insufficient_evidence"]
+    diagnosis_reason: str = Field(min_length=1, max_length=3000)
+    next_checks: list[str] = Field(max_length=10)
+    hypotheses: list[WorkingHypothesis] = Field(min_length=0, max_length=3)
     unresolved_gaps: list[str] = Field(max_length=10)
     requests: list[EvidenceRequest] = Field(max_length=4)
 
     @model_validator(mode="after")
     def coherent(self):
+        if self.diagnosis_status == "provisional" and not self.hypotheses:
+            raise PydanticCustomError("provisional_requires_hypothesis", SEMANTIC_MESSAGES["provisional_requires_hypothesis"])
         if (self.action == "retrieve") != bool(self.requests):
             raise PydanticCustomError("action_request_mismatch", SEMANTIC_MESSAGES["action_request_mismatch"])
         ranks = sorted(h.rank for h in self.hypotheses)
@@ -532,11 +542,18 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             for raw in state.get("working_hypotheses", []):
                 refs = list(dict.fromkeys(raw["evidence_refs"] + raw["contradicting_evidence_refs"]))
                 if set(refs) <= known:
-                    hypotheses.append(Hypothesis.model_validate({k: raw[k] for k in
-                        ("rank", "title", "explanation", "evidence", "confidence", "next_checks")} | {"evidence_refs": refs}).model_dump(mode="json"))
-            engine = "deterministic+llm" if hypotheses else "deterministic"
-            result = {"hypotheses": hypotheses or _fallback_hypotheses(state), "engine": engine,
-                      "fallback_reason": reason if not hypotheses else None,
+                    hypotheses.append(report_hypothesis(raw, refs))
+            decision = state.get("assessment_decision", {})
+            # A valid abstention remains an LLM assessment even with no hypotheses.
+            outcome = ({
+                "diagnosis_status": decision.get("diagnosis_status", "unknown"),
+                "diagnosis_reason": decision.get("diagnosis_reason"),
+                "next_checks": decision.get("next_checks", []), "hypotheses": hypotheses,
+            } if decision else fallback_diagnosis(state))
+            if outcome["diagnosis_status"] == "provisional" and not hypotheses:
+                outcome = fallback_diagnosis(state)
+            result = {**outcome, "engine": "deterministic+llm" if decision else "deterministic",
+                      "fallback_reason": reason if not decision else None,
                       **_public(state, journal.budget(), reason)}
             final = finalize_report_node(dict(state) | result)
             result["summary"] = final["summary"]

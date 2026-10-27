@@ -1,48 +1,31 @@
 import json
 import logging
-from typing import Any
 
 from incident_copilot.correlation.log_parser import primary_log, scope_notice
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
-from incident_copilot.llm.structured_output import HypothesesResponse
+from incident_copilot.llm.structured_output import HypothesesResponse, report_hypothesis
 from incident_copilot.llm.validation import AnalysisValidationFailure, validate_response
 
 logger = logging.getLogger(__name__)
 
 
-def _fallback_hypotheses(state: DiagnosisState) -> list[dict[str, Any]]:
-    parsed = primary_log(state.get("parsed_log", {}))
+def fallback_diagnosis(state: DiagnosisState) -> dict:
     candidates = state.get("candidates", [])
-    if not candidates:
-        return [
-            {
-                "rank": 1,
-                "title": "Insufficient localization",
-                "explanation": "The system could not localize the incident to a specific file with confidence.",
-                "evidence": parsed.get("error_lines", [])[:3],
-                "confidence": 0.15,
-                "next_checks": [
-                    "Provide a fuller stack trace",
-                    "Specify the failing service explicitly",
-                ],
-            }
-        ]
-    top = candidates[0]
-    return [
-        {
-            "rank": 1,
-            "title": f"Likely issue in {top.get('file_path')}",
-            "explanation": "Deterministic correlation signals point to this file as the strongest candidate.",
-            "evidence": top.get("reasons", [])[:5],
-            "confidence": min(0.85, top.get("score", 0) / 20.0),
-            "next_checks": [
-                f"Inspect {top.get('file_path')}",
-                "Validate the referenced symbol or configuration path",
-            ],
-        }
-    ]
+    return {
+        "hypotheses": [],
+        "diagnosis_status": "insufficient_evidence",
+        "diagnosis_reason": (
+            "Source correlation identifies locations to investigate but does not establish a cause."
+            if candidates else "The available evidence does not identify a source location or cause."
+        ),
+        "next_checks": (
+            [f"Inspect {candidates[0].get('file_path')}",
+             "Validate the referenced symbol or configuration against the failing runtime input"]
+            if candidates else ["Provide a fuller stack trace", "Specify the failing service explicitly"]
+        ),
+    }
 
 
 def build_diagnosis_prompt(state: DiagnosisState) -> str:
@@ -99,7 +82,7 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
     candidates = state.get("candidates", [])
     if not candidates:
         state["fallback_reason"] = "no_candidates"
-        state["hypotheses"] = _fallback_hypotheses(state)
+        state.update(fallback_diagnosis(state))
         return state
 
     response_schema = HypothesesResponse.model_json_schema()
@@ -115,7 +98,7 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
         # Exception messages may contain credentials, prompts, or response bodies.
         logger.warning("LLM diagnosis fallback: llm_request_failed")
         state["fallback_reason"] = "llm_request_failed"
-        state["hypotheses"] = _fallback_hypotheses(state)
+        state.update(fallback_diagnosis(state))
         return state
     try:
         response = validate_response(text, HypothesesResponse, stage="hypothesis_generation", model_call=1)
@@ -123,8 +106,9 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None) ->
         logger.warning("LLM diagnosis fallback: llm_invalid_response")
         state["fallback_reason"] = "llm_invalid_response"
         state["validation_errors"] = [exc.diagnostic.model_dump(mode="json")]
-        state["hypotheses"] = _fallback_hypotheses(state)
+        state.update(fallback_diagnosis(state))
     else:
-        state["hypotheses"] = [item.model_dump() for item in response.hypotheses]
+        state.update(response.model_dump(exclude={"hypotheses"}))
+        state["hypotheses"] = [report_hypothesis(item.model_dump()) for item in response.hypotheses]
         state["engine"] = "deterministic+llm"
     return state

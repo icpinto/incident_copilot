@@ -22,8 +22,27 @@ def test_historical_report_and_evidence_default_to_empty_investigation():
     restored = DiagnosisReport.model_validate(historical_json)
     assert restored.investigation is None and restored.retrieved_evidence == []
     assert restored.hypotheses[0].evidence_refs == []
+    assert restored.diagnosis_status == "unknown"
+    assert restored.hypotheses[0].confidence_status == "uncalibrated"
+    assert restored.hypotheses[0].confidence == .6
+    assert "60%" not in render_markdown(restored)
     assert "Retrieved Evidence" not in render_markdown(restored)
     assert IncidentEvidence.model_validate({"raw_log": "old incident"}).investigation is None
+
+
+def test_original_historical_json_gets_safe_confidence_metadata():
+    original = {**historical_state(), "likely_service": None, "likely_error_class": None, "candidates": []}
+    report = DiagnosisReport.model_validate(original)
+    assert "confidence_status" not in original["hypotheses"][0]
+    assert report.hypotheses[0].confidence_status == "uncalibrated"
+    assert report.diagnosis_status == "unknown"
+    assert DiagnosisReport.model_validate_json(report.model_dump_json()) == report
+
+
+def test_only_calibrated_confidence_renders_a_percentage():
+    state = historical_state()
+    state["hypotheses"][0]["confidence_status"] = "calibrated"
+    assert "60% (calibrated)" in render_markdown(build_report(state))
 
 
 def test_reports_preserve_investigation_citations_limits_and_actions():

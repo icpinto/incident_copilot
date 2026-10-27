@@ -45,11 +45,12 @@ describe('dashboard workflows', () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes('status=failed'))).toBe(true));
   });
 
-  it('shows evidence, confidence, and original logs in distinct views', async () => {
+  it('shows evidence, uncalibrated confidence, and original logs in distinct views', async () => {
     mockFetch(() => run);
     view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
     await screen.findByText('Gateway timed out');
-    expect(screen.getByText('80%')).toBeInTheDocument();
+    expect(screen.queryByText('80%')).not.toBeInTheDocument();
+    expect(screen.getByText('Uncalibrated score; diagnosis probability unavailable')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: /Source evidence/ }));
     expect(await screen.findByText('raise TimeoutError()')).toBeInTheDocument();
     expect(screen.getByText('stack frame match')).toBeInTheDocument();
@@ -71,6 +72,40 @@ describe('dashboard workflows', () => {
     expect(screen.getByText(/checkout.*wrapper.py:3/)).toBeInTheDocument();
     expect(screen.getByText('Revision: abc123')).toBeInTheDocument();
     expect(screen.getByText(/runtime execution is unproven/)).toBeInTheDocument();
+  });
+
+  it.each(['unavailable', 'uncalibrated'] as const)('hides %s diagnosis scores and keeps tentative leads', async confidence_status => {
+    mockFetch(() => ({ ...run, report: { ...run.report, diagnosis_status: 'insufficient_evidence',
+      diagnosis_reason: 'Runtime input is missing.', next_checks: ['Capture the failing input'],
+      hypotheses: [{ ...run.report!.hypotheses[0], confidence: confidence_status === 'unavailable' ? null : .8,
+        confidence_status, model_score: .8 }] } }));
+    const { container } = view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    expect(await screen.findByText('Insufficient evidence')).toBeInTheDocument();
+    expect(screen.getByText('Runtime input is missing.')).toBeInTheDocument();
+    expect(screen.getByText('Capture the failing input')).toBeInTheDocument();
+    expect(screen.getByText('Gateway timed out')).toBeInTheDocument();
+    expect(screen.getByText('api/main.py: 24')).toBeInTheDocument();
+    expect(screen.queryByText('80%')).not.toBeInTheDocument();
+    expect(container.querySelector('.confidence-track')).toBeNull();
+  });
+
+  it('shows an abstention without findings as a completed report', async () => {
+    mockFetch(() => ({ ...run, report: { ...run.report, diagnosis_status: 'insufficient_evidence',
+      hypotheses: [], next_checks: ['Provide a fuller stack trace'] } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    expect(await screen.findByText('Insufficient evidence')).toBeInTheDocument();
+    expect(screen.getByText('Provide a fuller stack trace')).toBeInTheDocument();
+    expect(screen.getByText('0 findings')).toBeInTheDocument();
+    expect(screen.queryByText('Investigation in progress')).not.toBeInTheDocument();
+  });
+
+  it('displays percentages only for explicitly calibrated confidence', async () => {
+    mockFetch(() => ({ ...run, report: { ...run.report, diagnosis_status: 'provisional',
+      hypotheses: [{ ...run.report!.hypotheses[0], confidence_status: 'calibrated' }] } }));
+    const { container } = view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    expect(await screen.findByText('80%')).toBeInTheDocument();
+    expect(screen.getByText('diagnosis confidence (calibrated)')).toBeInTheDocument();
+    expect(container.querySelector('.confidence-track')).not.toBeNull();
   });
 
   it('links findings to retrieved evidence and displays investigation gaps and actions', async () => {

@@ -16,6 +16,12 @@ from incident_copilot.graph.investigation_store import InvestigationStore
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
 
+OUTCOME = {
+    "diagnosis_status": "provisional",
+    "diagnosis_reason": "The incident evidence supports this provisional causal mechanism.",
+    "next_checks": ["Verify against the failing runtime input"],
+}
+
 
 class InvestigationModel:
     def __init__(self):
@@ -26,6 +32,7 @@ class InvestigationModel:
         self.prompts.append(prompt)
         source = next((e for e in prompt["evidence"] if e["kind"] == "source"), None)
         return json.dumps({
+            **OUTCOME,
             "action": "finish" if source else "retrieve",
             "hypotheses": [{
                 "id": "cache-path", "rank": 1, "title": "Cache path needs inspection",
@@ -131,6 +138,30 @@ async def test_retry_deadline_includes_time_while_worker_is_down(execution):
     assert journal().budget()["started_at"] == original_start
     assert journal().budget()["model_calls"] == journal().budget()["tool_calls"] == 1
     assert len(model.prompts) == 1
+
+
+@pytest.mark.asyncio
+async def test_abstention_survives_interruption_and_expired_deadline(execution, monkeypatch):
+    settings, runtime, payload, model, journal = execution
+    original = model.complete
+
+    async def abstain(**kwargs):
+        data = json.loads(await original(**kwargs))
+        data.update(diagnosis_status="insufficient_evidence", diagnosis_reason="Runtime input is missing",
+                    next_checks=["Capture the failing runtime input"], hypotheses=[])
+        return json.dumps(data)
+
+    monkeypatch.setattr(model, "complete", abstain)
+    await interrupt_after_retrieval(payload, settings, runtime)
+    budget = journal().budget()
+    budget["deadline"] = time.time() - 1
+    journal().put("budget", budget)
+    report = await run_diagnosis_graph(payload, settings, runtime)
+    assert report["diagnosis_status"] == "insufficient_evidence" and report["hypotheses"] == []
+    assert report["next_checks"] == ["Capture the failing runtime input"]
+    assert report["engine"] == "deterministic+llm" and report["fallback_reason"] is None
+    assert report["investigation"]["stop_reason"] == "deadline"
+    assert report["investigation"]["incomplete"] and len(model.prompts) == 1
 
 
 @pytest.mark.asyncio

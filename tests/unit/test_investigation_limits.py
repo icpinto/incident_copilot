@@ -12,6 +12,13 @@ from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord
 from incident_copilot.schemas.investigation import EvidenceItem, ToolOutcome
 
+OUTCOME = {
+    "diagnosis_status": "provisional",
+    "diagnosis_reason": "The incident evidence supports this provisional causal mechanism.",
+    "next_checks": ["Verify against the failing runtime input"],
+}
+
+
 REVISION = "a" * 40
 
 
@@ -33,6 +40,7 @@ def execution(tmp_path, monkeypatch):
 def decision(prompt, requests=None):
     shown = json.loads(prompt)["evidence"]
     return json.dumps({
+        **OUTCOME,
         "action": "retrieve" if requests else "finish", "requests": requests or [], "unresolved_gaps": [],
         "hypotheses": [{"id": "h1", "rank": 1, "title": "Investigate cache configuration",
                         "explanation": "The log identifies the cache as the incident location.",

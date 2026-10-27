@@ -10,6 +10,9 @@ class DiagnosisState(TypedDict, total=False):
     deep_analysis: dict[str, Any]
     graph_context: dict[str, Any] | None
     hypotheses: list[dict[str, Any]]
+    diagnosis_status: str
+    diagnosis_reason: str | None
+    next_checks: list[str]
     likely_service: str | None
     likely_error_class: str | None
     summary: str
