@@ -48,6 +48,8 @@ class DiagnoseIncidentWorkflow:
     @workflow.run
     async def run(self, incident: dict) -> dict:
         versioned = workflow.patched("bounded-investigation-v1")
+        managed_graph = workflow.patched("managed-code-graph-v1")
+        graph_options = {"heartbeat_timeout": timedelta(seconds=20)} if managed_graph else {}
         reasoning_options = {"heartbeat_timeout": timedelta(seconds=20)} if versioned else {}
         if "dashboard" in incident:
             from temporalio.common import RetryPolicy
@@ -58,7 +60,7 @@ class DiagnoseIncidentWorkflow:
                     dashboard_stage_activity, args=[incident_id, stage],
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),
-                    **(reasoning_options if stage == "reasoning" else {}),
+                    **(reasoning_options if stage == "reasoning" else graph_options if stage == "analyzing" else {}),
                 )
                 self.progress["timeline"].append(event)
             self.progress["stage"] = "completed"
@@ -83,7 +85,8 @@ class DiagnoseIncidentWorkflow:
         deep_analysis = await workflow.execute_activity(
             deep_analysis_activity,
             args=[str(inc.repo_root), correlation["candidates"], *appended],
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=10 if managed_graph else 5),
+            **graph_options,
         )
         report = await workflow.execute_activity(
             diagnosis_graph_activity,

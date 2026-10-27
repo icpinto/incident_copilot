@@ -36,7 +36,7 @@ def pipeline(tmp_path, monkeypatch):
                'repo_revision': 'a' * 40, 'indexed_revision': 'a' * 40, 'status': 'available',
                'completeness': 'bounded', 'symbols': [{'uid': 'charge', 'name': 'charge', 'file_path': 'main.py', 'line_start': 1, 'line_end': 2}],
                'relationships': [], 'seeds': []}
-    async def retrieve(root_arg, db, candidates, config):
+    async def retrieve(root_arg, db, candidates, config, **kwargs):
         assert Path(root_arg) == root and config.code_graph_enabled
         assert candidates[0]['file_path'] == 'main.py'
         calls.append((str(root_arg), str(db)))
@@ -68,6 +68,23 @@ async def test_dashboard_persists_graph_for_retries_prompts_and_exports(pipeline
     assert 'Static Code Graph' in render_markdown(report)
     assert json.loads((Path(saved['artifact_dir']) / 'report.json').read_text())['graph_context']['repo_revision'] == 'a' * 40
     assert service.public(saved).evidence.graph_context.provider == 'gitnexus'
+
+
+@pytest.mark.asyncio
+async def test_preparation_progress_is_saved_during_analysis(pipeline, monkeypatch):
+    from incident_copilot.schemas.code_graph import GraphPreparation
+    service, _root, logs, context, *_ = pipeline
+    run = service.submit(IncidentSubmission(repository_id='repo', log_text=logs))
+    async def retrieve(root, db, candidates, config, *, progress):
+        for status in ('queued', 'preparing', 'ready'):
+            await progress(GraphPreparation(repository=str(root), status=status))
+            assert service.store.get('incidents', run.id)['evidence']['graph_preparation']['status'] == status
+        return context
+    monkeypatch.setattr(activities, 'retrieve_graph_context', retrieve)
+    for stage in ('indexing', 'correlating', 'analyzing'):
+        await activities.dashboard_stage_activity(run.id, stage)
+    public = service.public(service.store.get('incidents', run.id))
+    assert public.evidence.graph_preparation.status == 'ready'
 
 
 @pytest.mark.asyncio

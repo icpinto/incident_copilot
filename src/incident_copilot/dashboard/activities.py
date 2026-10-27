@@ -13,6 +13,7 @@ from incident_copilot.indexing.repo_indexer import index_repository
 from incident_copilot.indexing.service_mapper import build_service_map
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
+from incident_copilot.schemas.code_graph import GraphPreparation
 from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
 
@@ -100,9 +101,23 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
                 results[candidate["file_path"]] = await asyncio.to_thread(deep_analyze_candidate, path)
         evidence["deep_analysis"] = results
         if "graph_context" not in evidence:
-            evidence["graph_context"] = await retrieve_graph_context(
-                root, Path(run["index_db_path"]), evidence.get("candidates", []), config,
-            )
+            async def preparation_progress(state: GraphPreparation) -> None:
+                evidence["graph_preparation"] = state.model_dump(mode="json")
+                store.update("incidents", incident_id, {"evidence": evidence, "updated_at": utcnow()})
+
+            async with reasoning_heartbeat(activity):
+                evidence["graph_context"] = await retrieve_graph_context(
+                    root, Path(run["index_db_path"]), evidence.get("candidates", []), config,
+                    progress=preparation_progress,
+                )
+            # A retry can fail source validation before contacting the manager.
+            # Clear any pending progress left by the interrupted attempt.
+            previous = evidence.get("graph_preparation") or {}
+            if previous.get("status") in {"queued", "preparing"}:
+                context = evidence.get("graph_context") or {}
+                await preparation_progress(GraphPreparation(
+                    repository=str(root), status="unavailable", reason=context.get("reason") or "preparation_failed",
+                ))
     elif stage == "reasoning":
         from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 

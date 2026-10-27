@@ -1,30 +1,44 @@
-# Optional code graph evidence
+# Managed code graph evidence
 
-GitNexus 1.6.12 supplies bounded static callers/callees. SQLite localization and candidate scores remain unchanged. The feature is disabled by default. A graph outage, stale index, dirty checkout, unresolved symbol, malformed response, or missing Python extra preserves the normal diagnosis path and records a reason in `graph_context`.
+GitNexus 1.6.12 supplies bounded static callers/callees. Graph evidence is enabled by default and prepared automatically for each incident's selected repository. SQLite localization and candidate scores remain unchanged. Graph failures preserve normal diagnosis and record a reason in `graph_context`.
 
-## Start the research service
+## Start and use the application
 
-Use a **clean, committed Git checkout**. Set `IC_REPOSITORIES_DIR` to the host directory mounted at `/repositories`, as with the existing dashboard. Select `/repositories` as the repository profile when this is one repository. To select a nested checkout, set `IC_GITNEXUS_REPOSITORY` to its absolute container path, such as `/repositories/payments`, and use that profile path too. One code-graph service stores one selected repository.
-
-The service has its own Node 22.18.0 Debian image; the Python worker only needs Git and the MCP client. No host Node upgrade is needed. The source mount stays read-only. Indexes, registry, locks, and the preparation marker live in the `gitnexus-state` named volume. Embeddings, full-text indexing, content retention, agent files, and skills are disabled for this prototype.
-
-PowerShell, from the project root (keep the same token across API/worker/service restarts):
+With Docker Desktop running, start every service from the project root:
 
 ```powershell
-$env:IC_GITNEXUS_AUTH_TOKEN = python -c "import secrets; print(secrets.token_urlsafe(32))"
-docker compose -f docker-compose.dev.yml --profile code-graph build gitnexus
-docker compose -f docker-compose.dev.yml --profile code-graph stop gitnexus
-docker compose -f docker-compose.dev.yml --profile code-graph run --rm --no-deps gitnexus prepare
-docker compose -f docker-compose.dev.yml --profile code-graph up -d gitnexus
-$env:IC_CODE_GRAPH_ENABLED = 'true'
-docker compose -f docker-compose.dev.yml up -d --build api worker
+docker compose -f docker-compose.dev.yml up --build -d
 ```
 
-For persistent configuration, keep the token and feature flag in your private `.env`. Saved dashboard overrides take precedence: use **Configuration → Code graph** to enable evidence and, if overridden, update the token. Tokens are masked in configuration responses and redacted from incident/report exports, including historical configured values. Finish old incidents before changing their service's repository selection.
+Open **http://localhost:8080**, add a repository profile, and start an analysis. No Compose profile, manual token, or preparation command is required. The analysis stage shows graph preparation progress and waits up to five minutes before continuing without graph evidence. Retrieval has a separate fifteen-second deadline. If another preparation occupies the service, that queue time counts toward the analysis's preparation deadline. A timed-out or canceled analysis does not cancel a shared preparation job; a later analysis can reuse it.
 
-Preparation requires a clean checkout including untracked files, and verifies HEAD again after indexing. `prepare` holds an exclusive lock; `serve` holds a shared lock. **Stop the service before refreshing**, otherwise preparation waits for it. Repeat the stop/prepare/start sequence after source commits. Failed preparation removes its readiness marker; the server cannot serve that unverified generation. A stale server can remain running, but its evidence is skipped until refreshed. Running incidents retain their saved graph evidence when reports are generated or exported later.
+Use a **clean, committed Git checkout**, including no untracked source files. The worker and graph service share the read-only `/repositories` mount. Set `IC_REPOSITORIES_DIR` before startup to choose the host directory mounted there. Use `/repositories` for one checkout, or `/repositories/payments`, `/repositories/catalog`, etc. when mounting a parent directory containing several checkouts. Every profile must select an exact checkout root. Paths outside that mount, including escaping symlinks, are rejected.
 
-For host Python processes, install `pip install -e ".[codegraph]"`, use `IC_GITNEXUS_URL=http://localhost:3111/mcp`, and set `IC_GITNEXUS_REPOSITORY` to the indexed container path. The host checkout must have the same clean commit. Docker applications use `http://gitnexus:3111/mcp`. HTTP binds beyond loopback require the shared token; the published host port is bound to localhost.
+**Repositories** shows readiness, indexed/current commits, preparation time, and a **Prepare graph / Refresh graph** action. Analyses automatically reuse an index at the current clean commit and refresh it after source commits. Status checks never start indexing. A dirty checkout, changing source, stale graph, missing symbol, or graph outage leaves normal diagnosis available.
+
+**Configuration > Code graph** controls graph evidence, managed/external mode, preparation budget (at most 300 seconds), and retrieval budget (at most 15 seconds). Changes apply to new analyses without restarting API or worker. Explicit saved or environment disables remain respected; reset a saved override to use the new enabled default.
+
+For a normal stack restart:
+
+```powershell
+docker compose -f docker-compose.dev.yml restart
+```
+
+The manager owns an internal read-only MCP child and handles stop/prepare/start around graph writes. It deduplicates requests, serializes writers, drains active MCP HTTP requests, and restarts the MCP child after preparation. Reads during refresh can fall back safely; existing incidents keep their saved graph evidence. A generation change during iterative investigation is rejected rather than mixed with earlier evidence.
+
+## Persistence and recovery
+
+The `gitnexus-state` volume stores independent indexes, the registry, and verified preparation markers beneath `/state/repositories`. Legacy `/state/index` data is retained; managed mode rebuilds an index on first use. A failed or interrupted write has no verified marker and is prepared again on demand. Verified indexes are reused after restart. The manager remains healthy before indexing any repository and restarts a failed MCP child; graph readiness does not gate the main application's startup.
+
+A separate `gitnexus-auth` volume stores an automatically generated token, mounted read-only into API and worker. An explicit `IC_GITNEXUS_AUTH_TOKEN` is preserved when supplied at startup. Managed clients read the shared token file (`IC_GITNEXUS_AUTH_TOKEN_FILE`) rather than stale dashboard credentials. Tokens never appear in settings responses, progress, or reports. The published port remains bound to localhost; management and MCP endpoints require authentication. The application does not need access to the Docker socket.
+
+The graph service uses its own Node 22.18.0 image. Source mounts stay read-only; embeddings, full-text indexing, source content retention, agent files, and skills remain disabled.
+
+## External services and host Python
+
+For host Python processes with a separately prepared GitNexus service, install `pip install -e ".[codegraph]"`, select **External (advanced)** under Code graph, and expand the external-service settings. Set `IC_CODE_GRAPH_MODE=external`, `IC_GITNEXUS_URL=http://localhost:3111/mcp`, and the service's token and indexed repository path. The host checkout must match the provider's clean commit. External mode performs retrieval only; it never requests preparation or refresh. For a custom endpoint inside Compose, use `IC_GITNEXUS_DOCKER_URL` or a saved dashboard endpoint override.
+
+The typed dashboard endpoints are `GET /api/repositories/{id}/graph` and `POST /api/repositories/{id}/graph/refresh` (202). Status includes readiness, source/index revisions, indexing time, and a fixed reason code. The browser communicates only with the main API.
 
 ## Evidence contract
 
@@ -36,10 +50,11 @@ Retrieval runs in the analysis stage, before hypotheses, through the same provid
 
 ## Compare results
 
-Ten labeled source cases live under `tests/fixtures/code_graph`: Python and TypeScript direct calls, wrappers, entry points, duplicate method names, and dynamic dispatch. Copy one language fixture to a separate directory, initialize and commit it as a Git repository, mount and prepare that repository as above. The opt-in real-provider suite expects precisely these fixture contents:
+Ten labeled source cases live under `tests/fixtures/code_graph`: Python and TypeScript direct calls, wrappers, entry points, duplicate method names, and dynamic dispatch. Copy one language fixture to a separate directory, initialize and commit it as a Git repository, mount that repository and use its dashboard Prepare graph action. The opt-in real-provider suite expects precisely these fixture contents:
 
 ```powershell
 $env:IC_RUN_GITNEXUS_TESTS = '1'
+$env:IC_CODE_GRAPH_MODE = 'external'
 $env:IC_GRAPH_TEST_REPO_ROOT = 'C:\path\to\committed-python-fixture'
 $env:IC_GRAPH_TEST_LANGUAGE = 'python'
 $env:IC_GITNEXUS_REPOSITORY = '/repositories'
@@ -54,7 +69,7 @@ python -m incident_copilot.evaluation.benchmark_runner --repo-root C:\path\to\re
 
 Or use `--golden-case python-wrapper` in place of `--log-file` for a prepared fixture. The runner indexes/ranks once, uses the same model/settings and source evidence twice, and varies graph evidence only. Outputs include both reports, unchanged-ranking assertion, top-five hit, labeled edge coverage when applicable, retrieval latency, Python allocation peak, and UTF-8 prompt size/token estimate. Python allocation peaks exclude native/server memory. Measure real sidecar memory separately with `docker stats --no-stream`; the report leaves this field empty. Unsupported claims and hypothesis quality require human review, and are left unscored. Check `engine` and `fallback_reason`: two deterministic fallbacks do not establish an LLM quality improvement.
 
-Normal checks are `python -m pytest -q`, `npm test` and `npm run build` under `apps/web`. The regular suite uses controlled providers and the real MCP SDK over JSON/SSE transports; it does not require a Docker daemon or external model. The opt-in suite exercises the actual prepared GitNexus graph and is skipped by default.
+Normal checks are `python -m pytest -q`, `node --test apps/codegraph/manager.test.mjs` (Node 22), and `npm test` / `npm run build` under `apps/web`. The regular suite uses controlled providers and the real MCP SDK over JSON/SSE transports; it does not require a Docker daemon or external model. The opt-in suite exercises the actual prepared GitNexus graph and is skipped by default.
 
 ## Research licensing
 

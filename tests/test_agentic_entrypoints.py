@@ -127,7 +127,9 @@ async def test_temporal_patch_preserves_old_history_arguments(tmp_path, monkeypa
     }
     await temporal_workflows.DiagnoseIncidentWorkflow().run(incident)
     assert len(calls) == 4
-    assert all("heartbeat_timeout" not in options for _, options in calls[:-1])
+    assert all("heartbeat_timeout" not in options for _, options in calls[:2])
+    assert ("heartbeat_timeout" in calls[2][1]) == versioned
+    assert calls[2][1]["start_to_close_timeout"] == timedelta(minutes=10 if dashboard or versioned else 5)
     if versioned:
         assert calls[-1][1]["heartbeat_timeout"] == timedelta(seconds=20)
     else:

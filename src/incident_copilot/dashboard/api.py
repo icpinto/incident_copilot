@@ -3,19 +3,31 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import date
+from typing import Annotated
 from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 
+from incident_copilot.analysis.graph_manager import repository_graph_status
 from incident_copilot.reporting.markdown_renderer import render_markdown
+from incident_copilot.schemas.code_graph import GraphPreparation
 from incident_copilot.schemas.diagnosis import DiagnosisReport
-from .config import control_path
-from .config import fingerprint
+
+from .config import control_path, fingerprint
 from .models import (
-    ConnectionCheck, ConnectionResult, IncidentPage, IncidentRecord, IncidentSubmission, Overview,
-    RepositoryInput, RepositoryProfile, RepositoryValidation, SettingsUpdate, SettingsView,
+    ConnectionCheck,
+    ConnectionResult,
+    IncidentPage,
+    IncidentRecord,
+    IncidentSubmission,
+    Overview,
+    RepositoryInput,
+    RepositoryProfile,
+    RepositoryValidation,
+    SettingsUpdate,
+    SettingsView,
 )
 from .service import DashboardService
 from .store import ControlStore, utcnow
@@ -101,6 +113,20 @@ def submit_incident(submission: IncidentSubmission, service: DashboardService = 
         return service.submit(submission)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
+
+
+@router.get("/repositories/{repository_id}/graph", response_model=GraphPreparation)
+async def graph_status(repository_id: str, service: Annotated[DashboardService, Depends(get_service)]):
+    profile = found(service, "repositories", repository_id)
+    return await repository_graph_status(profile["repo_root"], service.configuration.effective())
+
+
+@router.post("/repositories/{repository_id}/graph/refresh", response_model=GraphPreparation, status_code=202)
+async def refresh_graph(repository_id: str, service: Annotated[DashboardService, Depends(get_service)]):
+    profile = found(service, "repositories", repository_id)
+    if profile.get("archived"):
+        raise HTTPException(422, "Archived repositories cannot be prepared.")
+    return await repository_graph_status(profile["repo_root"], service.configuration.effective(), refresh=True)
 
 
 @router.get("/incidents", response_model=IncidentPage)

@@ -55,7 +55,7 @@ async def test_labeled_source_locations_and_graph_evidence(case, tmp_path, monke
     async def provider(_):
         yield Provider()
     monkeypatch.setattr(graph, 'open_provider', provider)
-    config = Settings(_env_file=None, code_graph_enabled=True, gitnexus_repository=str(root))
+    config = Settings(_env_file=None, code_graph_enabled=True, code_graph_mode="external", gitnexus_repository=str(root))
     candidate = {'file_path': anchor_path, 'symbol_name': anchor.name, 'line_start': anchor.line_start,
                  'line_end': anchor.line_end, 'score': 42, 'reasons': []}
     context = await graph.retrieve_graph_context(root, db, [candidate], config)

@@ -11,6 +11,7 @@ import pytest
 from incident_copilot.analysis import code_graph as graph
 from incident_copilot.core.settings import Settings
 from incident_copilot.indexing.storage import IndexStorage
+from incident_copilot.schemas.code_graph import GraphPreparation
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
 from incident_copilot.tools.git_local import clean_revision
 
@@ -47,7 +48,7 @@ def repository(tmp_path, monkeypatch):
     monkeypatch.setattr(graph, 'clean_revision', lambda _: REVISION)
     candidate = {'file_path': 'checkout.py', 'symbol_name': 'checkout', 'line_start': 1,
                  'line_end': 2, 'score': 42, 'reasons': ['stack frame match']}
-    config = Settings(_env_file=None, code_graph_enabled=True, gitnexus_repository=str(root))
+    config = Settings(_env_file=None, code_graph_enabled=True, code_graph_mode="external", gitnexus_repository=str(root))
     return root, storage, candidate, config
 
 
@@ -87,7 +88,7 @@ def test_rejects_malformed_or_truncated_wire_results(text):
 @pytest.mark.asyncio
 async def test_disabled_does_not_touch_git_storage_or_provider(monkeypatch):
     monkeypatch.setattr(graph, 'clean_revision', lambda _: pytest.fail('Git called while disabled'))
-    assert await graph.retrieve_graph_context(Path('missing'), Path('missing.db'), [], Settings(_env_file=None)) is None
+    assert await graph.retrieve_graph_context(Path('missing'), Path('missing.db'), [], Settings(_env_file=None, code_graph_enabled=False)) is None
 
 
 @pytest.mark.asyncio
@@ -331,3 +332,69 @@ async def test_ambiguous_related_method_does_not_hide_verified_calls(repository,
     assert context['seeds'][0]['reason'] == 'ambiguous_related_symbol'
     assert len(context['relationships']) == 1
     assert all(s['name'] != 'retry' for s in context['symbols'])
+
+
+@pytest.mark.asyncio
+async def test_managed_retrieval_prepares_only_a_verified_snapshot(repository, monkeypatch):
+    root, storage, candidate, settings = repository
+    settings.code_graph_mode = "managed"
+    settings.gitnexus_repository = "/old/single/repository"
+    calls = []
+    async def ensure(selection, revision, config, progress):
+        calls.append((selection, revision))
+        # Preparation can exceed retrieval's deadline without consuming that budget.
+        await asyncio.sleep(.02)
+        return GraphPreparation(repository=selection, status="ready")
+    monkeypatch.setattr(graph, "ensure_graph_ready", ensure)
+    install(monkeypatch, Provider(root, found(symbol("checkout", "checkout.py"))))
+    context = await graph.retrieve_graph_context(root, storage.db_path, [candidate], settings)
+    assert context["status"] == "available" and calls == [(str(root.resolve()), "a" * 40)]
+    assert context["retrieval_ms"] < 20
+    calls.clear()
+    await graph.retrieve_graph_context(root, storage.db_path, [], settings)
+    assert not calls
+    monkeypatch.setattr(graph, "clean_revision", lambda _: None)
+    context = await graph.retrieve_graph_context(root, storage.db_path, [candidate], settings)
+    assert context["reason"] == "checkout_not_clean_or_unavailable" and not calls
+
+
+@pytest.mark.asyncio
+async def test_preparation_failure_preserves_diagnosis_context(repository, monkeypatch):
+    root, storage, candidate, settings = repository
+    settings.code_graph_mode = "managed"
+    async def ensure(*_):
+        return GraphPreparation(status="unavailable", reason="preparation_timeout")
+    monkeypatch.setattr(graph, "ensure_graph_ready", ensure)
+    context = await graph.retrieve_graph_context(root, storage.db_path, [candidate], settings)
+    assert context["status"] == "unavailable" and context["reason"] == "preparation_timeout"
+    assert not context["symbols"] and not context["relationships"]
+
+
+@pytest.mark.asyncio
+async def test_pinned_generation_never_triggers_preparation(repository, monkeypatch):
+    root, storage, candidate, settings = repository
+    settings.code_graph_mode = "managed"
+    async def unexpected(*_):
+        pytest.fail("captured evidence must not trigger a refresh")
+    monkeypatch.setattr(graph, "ensure_graph_ready", unexpected)
+    install(monkeypatch, Provider(root, found(symbol("checkout", "checkout.py"))))
+    context = await graph.retrieve_graph_context(root, storage.db_path, [candidate], settings,
+                                                      expected_generation="2026-10-24T10:00:00Z")
+    assert context["status"] == "available"
+    # A reasoning lookup with no previously available graph also stays read-only.
+    context = await graph.retrieve_symbol_context(root, storage.db_path, {
+        "file_path": candidate["file_path"], "name": candidate["symbol_name"],
+        "line_start": candidate["line_start"], "line_end": candidate["line_end"],
+    }, settings)
+    assert context["status"] == "available"
+
+
+@pytest.mark.asyncio
+async def test_repository_selection_searches_later_registry_pages():
+    class PagedProvider:
+        async def call(self, tool, args):
+            assert tool == 'list_repos'
+            if args['offset'] == 0:
+                return {'repositories': [{'path': '/other'}], 'pagination': {'hasMore': True, 'nextOffset': 100}}
+            return {'repositories': [{'path': '/selected', 'lastCommit': REVISION, 'indexedAt': 'generation'}]}
+    assert (await graph.repository_snapshot(PagedProvider(), '/selected'))['lastCommit'] == REVISION

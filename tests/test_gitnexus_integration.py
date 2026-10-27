@@ -18,7 +18,7 @@ async def test_prepared_graph_against_labeled_language_fixture(tmp_path):
     root = Path(os.environ['IC_GRAPH_TEST_REPO_ROOT']).resolve()
     language = os.getenv('IC_GRAPH_TEST_LANGUAGE', 'python')
     assert language in {'python', 'typescript'}
-    config = Settings(code_graph_enabled=True)
+    config = Settings(code_graph_enabled=True, code_graph_mode="external")
     db = tmp_path / 'index.db'
     summary = index_repository(root, None, db)
     assert summary.repo_revision, 'Use a clean, committed fixture checkout'

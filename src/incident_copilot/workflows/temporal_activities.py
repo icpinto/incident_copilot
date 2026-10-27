@@ -86,7 +86,8 @@ async def deep_analysis_activity(repo_root: str, candidates: list[dict], runtime
         abs_path = Path(repo_root) / file_path
         if abs_path.exists():
             results[file_path] = await asyncio.to_thread(deep_analyze_candidate, abs_path)
-    graph_context = await retrieve_graph_context(Path(repo_root), settings.index_db_path, candidates, settings)
+    async with reasoning_heartbeat(activity):
+        graph_context = await retrieve_graph_context(Path(repo_root), settings.index_db_path, candidates, settings)
     # Keep the historical files-only activity result when the feature is disabled.
     # The explicit envelope is understood by diagnosis_graph_activity on replay too.
     return {"files": results, "graph_context": graph_context} if graph_context is not None else results

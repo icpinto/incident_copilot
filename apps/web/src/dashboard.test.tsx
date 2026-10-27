@@ -24,6 +24,47 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
 }
 
 describe('dashboard workflows', () => {
+  it('shows graph readiness and queues a refresh through the repository API', async () => {
+    const writes: string[] = [];
+    mockFetch((url, init) => {
+      if (url.endsWith('/graph/refresh')) { writes.push(url); return { repository: repo.repo_root, status: 'preparing', reason: null }; }
+      if (url.endsWith('/graph')) return { repository: repo.repo_root, status: 'ready', indexed_revision: 'a'.repeat(40), source_revision: 'a'.repeat(40), indexed_at: '2026-10-27T09:00:00Z', reason: null };
+      return [repo];
+    });
+    view(<Repositories />);
+    await screen.findByText('Ready');
+    expect(screen.getByText('Indexed commit: aaaaaaaaaaaa')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh graph' }));
+    expect(await screen.findByRole('button', { name: 'Preparing graph…' })).toBeDisabled();
+    expect(writes).toEqual(['/api/repositories/repo/graph/refresh']);
+  });
+
+  it('explains unavailable graph evidence without blocking repository actions', async () => {
+    mockFetch(url => url.endsWith('/graph') ? { status: 'unavailable', reason: 'checkout_not_clean_or_unavailable' } : [repo]);
+    view(<Repositories />);
+    await screen.findByText('Use a clean, committed Git checkout for graph evidence.');
+    expect(screen.getByRole('button', { name: 'Validate access' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Prepare graph' })).toBeEnabled();
+  });
+
+  it('shows automatic preparation progress during incident analysis', async () => {
+    mockFetch(() => ({ ...run, report: null, status: 'running', stage: 'analyzing', evidence: { graph_preparation: { status: 'preparing' } } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    expect(await screen.findByText(/Preparing code graph for this repository/)).toBeInTheDocument();
+  });
+
+  it('keeps external graph configuration under advanced settings', async () => {
+    mockFetch(() => ({ saved: { code_graph_enabled: true, code_graph_mode: 'managed', code_graph_prepare_timeout_seconds: 300, code_graph_timeout_seconds: 15 }, active: {}, overridden: [], restart_required: [], infrastructure_fields: [], control_db_path: '/data/control.db', secret_configured: false }));
+    view(<Settings />);
+    await screen.findByLabelText('Graph service');
+    expect(screen.queryByLabelText('GitNexus MCP endpoint')).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Graph service'), 'external');
+    const advanced = screen.getByText('Advanced external-service settings');
+    await userEvent.click(advanced);
+    expect(screen.getByLabelText('GitNexus MCP endpoint')).toBeVisible();
+    expect(screen.getByLabelText('Preparation deadline (seconds)')).toHaveValue(300);
+  });
+
   it('submits repository, logs, and service hint without waiting for the diagnosis', async () => {
     const requests: { url: string; body: Record<string, unknown> }[] = [];
     mockFetch((url, init) => { if (url.includes('/repositories')) return [repo]; requests.push({ url, body: JSON.parse(String(init?.body)) }); return { ...run, status: 'queued' }; });

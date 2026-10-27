@@ -1,4 +1,4 @@
-"""Optional GitNexus retrieval. No ranking changes, source execution, or graph writes."""
+"""Bounded GitNexus evidence with managed preparation; source and ranking stay unchanged."""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +12,7 @@ from typing import Any, Protocol
 import httpx
 from pydantic import ValidationError
 
+from incident_copilot.analysis.graph_manager import Progress, auth_headers, ensure_graph_ready
 from incident_copilot.core.settings import Settings
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.code_graph import (
@@ -73,7 +74,7 @@ async def open_provider(config: Settings) -> AsyncIterator[CodeGraphProvider]:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 
-    headers = {"Authorization": f"Bearer {config.gitnexus_auth_token}"} if config.gitnexus_auth_token else {}
+    headers = auth_headers(config)
     async with (
         httpx.AsyncClient(headers=headers, timeout=config.code_graph_timeout_seconds, trust_env=False) as client,
         streamable_http_client(config.gitnexus_url, http_client=client) as (read, write, _),
@@ -145,12 +146,36 @@ def check_staleness(payload: dict[str, Any]) -> None:
 async def retrieve_graph_context(
     root: Path, index_db_path: Path, candidates: list[dict[str, Any]], config: Settings,
     *, expected_generation: str | None = None,
+    progress: Progress | None = None,
+    prepare: bool = True,
 ) -> dict[str, Any] | None:
     if not config.code_graph_enabled:
         return None
     started = time.monotonic()
-    context = GraphContext(repository=config.gitnexus_repository or str(root.resolve()), status="skipped")
+    selection = str(root.resolve()) if config.code_graph_mode == "managed" else config.gitnexus_repository or str(root.resolve())
+    context = GraphContext(repository=selection, status="skipped")
     try:
+        # Iterative lookups must reuse the captured generation, never refresh it.
+        if config.code_graph_mode == "managed" and prepare and expected_generation is None:
+            revision = await asyncio.to_thread(clean_revision, root)
+            if revision is None:
+                context.reason = "checkout_not_clean_or_unavailable"
+                return context.model_dump(mode="json")
+            storage = IndexStorage(index_db_path, read_only=True)
+            indexed_root, indexed_revision = storage.snapshot_identity()
+            if Path(indexed_root).resolve() != root.resolve() or indexed_revision != revision:
+                context.reason = "source_snapshot_mismatch"
+                return context.model_dump(mode="json")
+            if not any(c.get("symbol_name") and c.get("line_start") and c.get("line_end") for c in candidates):
+                context.reason = "no_localized_symbols"
+                return context.model_dump(mode="json")
+            state = await ensure_graph_ready(selection, revision, config, progress)
+            if state.status != "ready":
+                context.status, context.reason = "unavailable", state.reason or "preparation_failed"
+                context.repo_revision = revision
+                return context.model_dump(mode="json")
+        # Preparation has its own budget; retrieval latency and deadline exclude it.
+        started = time.monotonic()
         async with asyncio.timeout(config.code_graph_timeout_seconds):
             await _retrieve(root, index_db_path, candidates, config, context, expected_generation)
     except TimeoutError:
@@ -176,6 +201,7 @@ async def retrieve_symbol_context(
     }
     return await retrieve_graph_context(
         root, index_db_path, [seed], config, expected_generation=expected_generation,
+        prepare=False,
     )
 
 
@@ -296,10 +322,22 @@ async def _retrieve(root: Path, index_db_path: Path, candidates: list[dict[str, 
 
 
 async def repository_snapshot(provider: CodeGraphProvider, selection: str) -> dict[str, Any]:
-    listing = await provider.call("list_repos", {"limit": 100, "offset": 0})
-    repos = listing.get("repositories")
-    if not isinstance(repos, list):
-        raise GraphEvidenceError("malformed_response")
+    repos, offset = [], 0
+    for _ in range(100):
+        listing = await provider.call("list_repos", {"limit": 100, "offset": offset})
+        page = listing.get("repositories")
+        if not isinstance(page, list):
+            raise GraphEvidenceError("malformed_response")
+        repos.extend(page)
+        pagination = listing.get("pagination")
+        if not isinstance(pagination, dict) or pagination.get("hasMore") is not True:
+            break
+        next_offset = pagination.get("nextOffset")
+        if type(next_offset) is not int or next_offset <= offset:
+            raise GraphEvidenceError("malformed_response")
+        offset = next_offset
+    else:
+        raise GraphEvidenceError("repository_listing_limit")
     matches = [r for r in repos if isinstance(r, dict) and (r.get("path") == selection or r.get("name") == selection)]
     if len(matches) != 1:
         raise GraphEvidenceError("repository_not_found_or_ambiguous")

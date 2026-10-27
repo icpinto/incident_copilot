@@ -71,6 +71,11 @@ is available at http://localhost:8233.
 4. Start **New analysis**, choose a repository, and paste or load error logs.
 5. Follow activity stages, inspect hypotheses and source evidence, and export the report.
 
+Code graph evidence is enabled by default. The application prepares each repository's
+graph automatically, waiting up to five minutes before falling back to normal diagnosis.
+Use a clean, committed checkout. **Repositories** shows graph status and provides
+Prepare/Refresh actions; no additional Docker commands or token setup are required.
+
 The dashboard starts empty and calculates all metrics from saved incidents. LLM
 failures fall back to deterministic diagnosis, with the actual engine shown in the report.
 
@@ -230,12 +235,13 @@ uses these values by default and accepts overrides from the environment or `.env
 When running directly on the host, set `IC_OLLAMA_BASE_URL=http://localhost:11434`
 if Ollama is listening locally.
 
-## Optional code graph knowledge
+## Managed code graph knowledge
 
 GitNexus can enrich incident evidence with bounded static callers and callees while
-preserving deterministic candidate ranking. It runs in an optional isolated service,
-with read-only source mounts and persistent external graph storage. See
-[setup, freshness rules, and comparison workflow](docs/code-graph.md).
+preserving deterministic candidate ranking. Its managed service starts with the normal
+stack, prepares a separate index for each repository, and refreshes after commits.
+Read-only source mounts and persistent external graph storage are retained. See
+[management, freshness rules, and comparison workflow](docs/code-graph.md).
 
 ## Project layout
 

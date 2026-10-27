@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from incident_copilot.schemas.candidates import CandidateLocation
-from incident_copilot.schemas.code_graph import GraphContext
+from incident_copilot.schemas.code_graph import GraphContext, GraphPreparation
 from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.index import RepoIndexSummary
 from incident_copilot.schemas.investigation import (
@@ -58,6 +58,7 @@ class IncidentEvidence(BaseModel):
     deep_analysis: dict[str, Any] = Field(default_factory=dict)
     index_summary: RepoIndexSummary | None = None
     graph_context: GraphContext | None = None
+    graph_preparation: GraphPreparation | None = None
     retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)

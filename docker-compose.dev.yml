@@ -62,8 +62,11 @@ services:
       IC_AGENTIC_MAX_ROUNDS: ${IC_AGENTIC_MAX_ROUNDS:-3}
       IC_AGENTIC_MAX_TOOL_REQUESTS: ${IC_AGENTIC_MAX_TOOL_REQUESTS:-12}
       IC_AGENTIC_TIMEOUT_SECONDS: ${IC_AGENTIC_TIMEOUT_SECONDS:-180}
-      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-false}
-      IC_GITNEXUS_URL: http://gitnexus:3111/mcp
+      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-true}
+      IC_CODE_GRAPH_MODE: ${IC_CODE_GRAPH_MODE:-managed}
+      IC_CODE_GRAPH_PREPARE_TIMEOUT_SECONDS: ${IC_CODE_GRAPH_PREPARE_TIMEOUT_SECONDS:-300}
+      IC_GITNEXUS_URL: ${IC_GITNEXUS_DOCKER_URL:-http://gitnexus:3111/mcp}
+      IC_GITNEXUS_AUTH_TOKEN_FILE: /run/codegraph-auth/token
       IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
       IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
       IC_LLM_PROVIDER: ollama
@@ -72,6 +75,7 @@ services:
     volumes:
       - ./data:/app/data
       - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
+      - gitnexus-auth:/run/codegraph-auth:ro
     depends_on:
       temporal:
         condition: service_started
@@ -96,8 +100,11 @@ services:
       IC_TEMPORAL_HOST: temporal:7233
       IC_TEMPORAL_NAMESPACE: default
       IC_TEMPORAL_TASK_QUEUE: incident-copilot
-      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-false}
-      IC_GITNEXUS_URL: http://gitnexus:3111/mcp
+      IC_CODE_GRAPH_ENABLED: ${IC_CODE_GRAPH_ENABLED:-true}
+      IC_CODE_GRAPH_MODE: ${IC_CODE_GRAPH_MODE:-managed}
+      IC_CODE_GRAPH_PREPARE_TIMEOUT_SECONDS: ${IC_CODE_GRAPH_PREPARE_TIMEOUT_SECONDS:-300}
+      IC_GITNEXUS_URL: ${IC_GITNEXUS_DOCKER_URL:-http://gitnexus:3111/mcp}
+      IC_GITNEXUS_AUTH_TOKEN_FILE: /run/codegraph-auth/token
       IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
       IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
       IC_LLM_PROVIDER: ollama
@@ -106,6 +113,7 @@ services:
     volumes:
       - ./data:/app/data
       - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
+      - gitnexus-auth:/run/codegraph-auth:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 10s
@@ -115,7 +123,8 @@ services:
       - temporal
 
   gitnexus:
-    profiles: [code-graph]
+    restart: unless-stopped
+    init: true
     build:
       context: .
       dockerfile: apps/codegraph/Dockerfile
@@ -127,6 +136,7 @@ services:
     volumes:
       - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
       - gitnexus-state:/state
+      - gitnexus-auth:/run/codegraph-auth
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3111/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -135,3 +145,4 @@ services:
 
 volumes:
   gitnexus-state:
+  gitnexus-auth:

@@ -43,3 +43,12 @@ class GraphContext(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     retrieval_ms: float = 0
 
+
+class GraphPreparation(BaseModel):
+    repository: str = ""
+    status: Literal["disabled", "external", "not_prepared", "queued", "preparing", "ready", "stale", "unavailable"]
+    source_revision: str | None = None
+    indexed_revision: str | None = None
+    indexed_at: str | None = None
+    reason: str | None = Field(default=None, max_length=128)
+

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -167,8 +165,8 @@ def test_concurrent_repositories_and_configuration_snapshots(service, tmp_path, 
 
 @pytest.fixture
 def client(service, monkeypatch):
-    from apps.api.main import app
     import incident_copilot.dashboard.api as dashboard_api
+    from apps.api.main import app
     async def no_background(_):
         await asyncio.sleep(3600)
     monkeypatch.setattr(dashboard_api, "reconciliation_loop", no_background)
@@ -209,6 +207,35 @@ def test_redaction_preserves_structural_status_fields(service, tmp_path):
     run = submit(service, tmp_path)
     assert run.status == "queued" and run.stage == "queued"
     assert service.configuration.redact({"message": "Token queued appeared"})["message"] == "Token [redacted] appeared"
+
+
+def test_graph_status_and_refresh_use_profile_path_and_saved_mode(client, tmp_path, monkeypatch):
+    import incident_copilot.dashboard.api as dashboard_api
+    from incident_copilot.schemas.code_graph import GraphPreparation
+    calls = []
+    async def status(repository, config, *, refresh=False):
+        calls.append((repository, config.code_graph_mode, refresh))
+        return GraphPreparation(repository=repository, status="preparing" if refresh else "not_prepared")
+    monkeypatch.setattr(dashboard_api, "repository_graph_status", status)
+    repo = client.post("/api/repositories", json={"name": "Graph repository", "repo_root": str(tmp_path)}).json()
+    assert client.get(f"/api/repositories/{repo['id']}/graph").json()["status"] == "not_prepared"
+    refreshed = client.post(f"/api/repositories/{repo['id']}/graph/refresh")
+    assert refreshed.status_code == 202 and refreshed.json()["status"] == "preparing"
+    assert calls == [(str(tmp_path), "managed", False), (str(tmp_path), "managed", True)]
+    assert client.get("/api/repositories/missing/graph").status_code == 404
+    client.post(f"/api/repositories/{repo['id']}/archive")
+    assert client.post(f"/api/repositories/{repo['id']}/graph/refresh").status_code == 422
+
+
+def test_graph_defaults_can_be_disabled_and_external_mode_is_validated(client):
+    settings = client.get("/api/settings").json()
+    assert settings["saved"]["code_graph_enabled"] is True
+    assert settings["saved"]["code_graph_mode"] == "managed"
+    response = client.put("/api/settings", json={"values": {"code_graph_enabled": False, "code_graph_mode": "external"}})
+    assert response.status_code == 200 and response.json()["saved"]["code_graph_enabled"] is False
+    assert response.json()["restart_required"] == []
+    assert client.put("/api/settings", json={"values": {"code_graph_mode": "unknown"}}).status_code == 422
+    assert client.put("/api/settings", json={"values": {"code_graph_prepare_timeout_seconds": 301}}).status_code == 422
 
 
 def test_exports_redact_credentials_and_preserve_report_contract(client, tmp_path):

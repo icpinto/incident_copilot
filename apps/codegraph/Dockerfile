@@ -6,11 +6,10 @@ ENV GITNEXUS_SKIP_OPTIONAL_GRAMMARS=1 \
     SCARF_ANALYTICS=false \
     HOME=/state/home \
     GITNEXUS_HOME=/state/home/.gitnexus \
-    GITNEXUS_STORAGE_PATH=/state/index \
     GITNEXUS_SHARED_STORE=off \
     GITNEXUS_CONTENT_RETENTION=none
 RUN npm install --global gitnexus@1.6.12
 WORKDIR /opt/codegraph
-COPY apps/codegraph/entrypoint.sh apps/codegraph/prepare.mjs ./
+COPY apps/codegraph/entrypoint.sh apps/codegraph/prepare.mjs apps/codegraph/manager.mjs ./
 ENTRYPOINT ["sh", "/opt/codegraph/entrypoint.sh"]
 CMD ["serve"]

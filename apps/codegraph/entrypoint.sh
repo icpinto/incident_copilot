@@ -10,16 +10,13 @@ export GIT_CONFIG_VALUE_0="$GITNEXUS_REPO_ROOT"
 mkdir -p /state/home
 case "${1:-serve}" in
   prepare)
+    export GITNEXUS_STORAGE_PATH=/state/index
     echo "Waiting for exclusive graph access; stop the gitnexus service before refreshing."
     exec flock --exclusive --no-fork /state/refresh.lock node /opt/codegraph/prepare.mjs
     ;;
   serve)
-    if [ -z "${GITNEXUS_MCP_AUTH_TOKEN:-}" ]; then
-      echo "Set IC_GITNEXUS_AUTH_TOKEN before starting the code-graph profile." >&2
-      exit 1
-    fi
-    # Readers cannot overlap a refresh, including another preparation container.
-    exec flock --shared --no-fork /state/refresh.lock sh -c 'node /opt/codegraph/prepare.mjs --check && exec gitnexus mcp --http --host 0.0.0.0 --port 3111'
+    # A second container must never write to this volume concurrently.
+    exec flock --exclusive --no-fork /state/refresh.lock node /opt/codegraph/manager.mjs
     ;;
   *) echo "Usage: prepare | serve" >&2; exit 2 ;;
 esac
