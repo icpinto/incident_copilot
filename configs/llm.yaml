@@ -1,2 +1,4 @@
-provider: ollama
-ollama_model: llama3.1:8b
+# Example application settings; runtime values come from IC_* or the dashboard.
+provider: openai_compatible
+openai_compatible_base_url: http://litellm:4000/v1
+openai_compatible_model: incident-diagnosis

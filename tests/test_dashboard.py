@@ -19,6 +19,8 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setenv("IC_CONTROL_DB_PATH", str(tmp_path / "control.db"))
     monkeypatch.setenv("IC_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("IC_INDEX_DB_PATH", str(tmp_path / "indexes" / "repo.db"))
+    monkeypatch.setenv("IC_LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("IC_OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:1/v1")
     monkeypatch.setenv("IC_OLLAMA_BASE_URL", "http://127.0.0.1:1")
     return DashboardService(ControlStore(tmp_path / "control.db"))
 

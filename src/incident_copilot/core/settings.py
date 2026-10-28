@@ -21,12 +21,12 @@ class Settings(BaseSettings):
     temporal_connect_max_attempts: int = Field(default=60, ge=1)
     temporal_connect_retry_delay_seconds: int = Field(default=2, ge=1)
 
-    llm_provider: str = "ollama"
+    llm_provider: str = "openai_compatible"
     ollama_base_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "llama3.1:8b"
-    openai_compatible_base_url: str = "http://localhost:8000/v1"
-    openai_compatible_model: str = "gpt-oss-20b"
-    openai_compatible_api_key: str = "dummy"
+    openai_compatible_base_url: str = "http://localhost:4000/v1"
+    openai_compatible_model: str = "incident-diagnosis"
+    openai_compatible_api_key: str = ""
 
     top_k_candidates: int = Field(default=10, ge=1)
     deep_analysis_top_n: int = Field(default=5, ge=1)

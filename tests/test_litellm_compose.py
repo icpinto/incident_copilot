@@ -19,33 +19,22 @@ pytestmark = pytest.mark.skipif(DOCKER is None, reason="Docker Compose CLI is no
 @pytest.fixture
 def compose(tmp_path):
     empty_env = tmp_path / "empty.env"
-    empty_env.write_text("", encoding="utf-8")
-
-    def render(*, gateway=False, variables=None):
+    def render(*, variables=None, env_text=""):
+        empty_env.write_text(env_text, encoding="utf-8")
         environment = {key: value for key, value in os.environ.items()
                        if not key.upper().startswith(("IC_", "LITELLM_", "COMPOSE_"))}
         environment.update(variables or {})
         command = [DOCKER, "compose", "--env-file", str(empty_env),
                    "-f", str(ROOT / "docker-compose.dev.yml")]
-        if gateway:
-            command.extend(["-f", str(ROOT / "docker-compose.litellm.yml")])
         return subprocess.run(command + ["config", "--format", "json"], check=False, cwd=ROOT,
                               env=environment, capture_output=True, text=True, timeout=30)
 
     return render
 
 
-def test_default_stack_still_uses_direct_ollama_without_gateway_key(compose):
-    result = compose()
-    assert result.returncode == 0, result.stderr
-    services = json.loads(result.stdout)["services"]
-    assert "litellm" not in services
-    for name in ("api", "worker"):
-        assert services[name]["environment"]["IC_LLM_PROVIDER"] == "ollama"
-
-
 def test_external_gateway_settings_reach_both_processes(compose):
     variables = {
+        "LITELLM_MASTER_KEY": "sk-compose-test-key",
         "IC_LLM_PROVIDER": "openai_compatible",
         "IC_OPENAI_COMPATIBLE_BASE_URL": "https://gateway.example/v1",
         "IC_OPENAI_COMPATIBLE_MODEL": "incident-diagnosis",
@@ -56,11 +45,11 @@ def test_external_gateway_settings_reach_both_processes(compose):
     services = json.loads(result.stdout)["services"]
     for name in ("api", "worker"):
         environment = services[name]["environment"]
-        assert all(environment[key] == value for key, value in variables.items())
+        assert all(environment[key] == value for key, value in variables.items() if key.startswith("IC_"))
 
 
-def test_bundled_gateway_routes_both_processes_to_alias_and_waits_for_health(compose):
-    result = compose(gateway=True, variables={"LITELLM_MASTER_KEY": "sk-compose-test-key"})
+def test_default_stack_routes_both_processes_to_gateway_and_waits_for_health(compose):
+    result = compose(variables={"LITELLM_MASTER_KEY": "sk-compose-test-key"})
     assert result.returncode == 0, result.stderr
     services = json.loads(result.stdout)["services"]
     gateway = services["litellm"]
@@ -74,6 +63,7 @@ def test_bundled_gateway_routes_both_processes_to_alias_and_waits_for_health(com
             for key, value in service["environment"].items() if key.startswith("IC_")
         })
         client = get_client(config)
+        assert config.llm_provider == "openai_compatible"
         assert client.base_url == "http://litellm:4000/v1"
         assert client.model == "incident-diagnosis"
         assert client.api_key == gateway["environment"]["LITELLM_MASTER_KEY"]
@@ -83,7 +73,20 @@ def test_bundled_gateway_routes_both_processes_to_alias_and_waits_for_health(com
 
 
 @pytest.mark.parametrize("variables", [{}, {"LITELLM_MASTER_KEY": ""}])
-def test_gateway_overlay_requires_nonempty_authentication_key(compose, variables):
-    result = compose(gateway=True, variables=variables)
+def test_main_stack_requires_nonempty_authentication_key(compose, variables):
+    result = compose(variables=variables)
     assert result.returncode != 0
     assert "LITELLM_MASTER_KEY" in result.stderr
+
+
+def test_example_env_routes_both_processes_with_matching_gateway_credentials(compose):
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    result = compose(env_text=example.replace("LITELLM_MASTER_KEY=", "LITELLM_MASTER_KEY=sk-example-key"))
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    for name in ("api", "worker"):
+        environment = services[name]["environment"]
+        assert environment["IC_LLM_PROVIDER"] == "openai_compatible"
+        assert environment["IC_OPENAI_COMPATIBLE_BASE_URL"] == "http://litellm:4000/v1"
+        assert environment["IC_OPENAI_COMPATIBLE_MODEL"] == "incident-diagnosis"
+        assert environment["IC_OPENAI_COMPATIBLE_API_KEY"] == services["litellm"]["environment"]["LITELLM_MASTER_KEY"] == "sk-example-key"

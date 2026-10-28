@@ -43,6 +43,29 @@ services:
       retries: 12
       start_period: 5s
 
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:1.106.4@sha256:c169fb3adc514fcf210377c203f3de406d54f10bfdacf13948a4a839db9af7de}
+    restart: unless-stopped
+    init: true
+    command: ["--config=/app/config.yaml", "--host=0.0.0.0", "--port=4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env before starting the stack}
+      LITELLM_MODEL: ${LITELLM_MODEL:-ollama_chat/llama3.1:8b}
+      LITELLM_API_BASE: ${LITELLM_API_BASE:-http://host.docker.internal:11434}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-ollama}
+    ports:
+      - "127.0.0.1:4000:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./configs/litellm.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
   worker:
     build:
       context: .
@@ -69,12 +92,12 @@ services:
       IC_GITNEXUS_AUTH_TOKEN_FILE: /run/codegraph-auth/token
       IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
       IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
-      IC_LLM_PROVIDER: ${IC_LLM_PROVIDER:-ollama}
+      IC_LLM_PROVIDER: ${IC_LLM_PROVIDER:-openai_compatible}
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
-      IC_OPENAI_COMPATIBLE_BASE_URL: ${IC_OPENAI_COMPATIBLE_BASE_URL:-http://host.docker.internal:8000/v1}
-      IC_OPENAI_COMPATIBLE_MODEL: ${IC_OPENAI_COMPATIBLE_MODEL:-gpt-oss-20b}
-      IC_OPENAI_COMPATIBLE_API_KEY: ${IC_OPENAI_COMPATIBLE_API_KEY:-dummy}
+      IC_OPENAI_COMPATIBLE_BASE_URL: ${IC_OPENAI_COMPATIBLE_BASE_URL:-http://litellm:4000/v1}
+      IC_OPENAI_COMPATIBLE_MODEL: ${IC_OPENAI_COMPATIBLE_MODEL:-incident-diagnosis}
+      IC_OPENAI_COMPATIBLE_API_KEY: ${IC_OPENAI_COMPATIBLE_API_KEY:-${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env before starting the stack}}
     volumes:
       - ./data:/app/data
       - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
@@ -82,6 +105,8 @@ services:
     depends_on:
       temporal:
         condition: service_started
+      litellm:
+        condition: service_healthy
 
   api:
     build:
@@ -110,12 +135,12 @@ services:
       IC_GITNEXUS_AUTH_TOKEN_FILE: /run/codegraph-auth/token
       IC_GITNEXUS_REPOSITORY: ${IC_GITNEXUS_REPOSITORY:-}
       IC_GITNEXUS_AUTH_TOKEN: ${IC_GITNEXUS_AUTH_TOKEN:-}
-      IC_LLM_PROVIDER: ${IC_LLM_PROVIDER:-ollama}
+      IC_LLM_PROVIDER: ${IC_LLM_PROVIDER:-openai_compatible}
       IC_OLLAMA_BASE_URL: ${IC_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       IC_OLLAMA_MODEL: ${IC_OLLAMA_MODEL:-llama3.1:8b}
-      IC_OPENAI_COMPATIBLE_BASE_URL: ${IC_OPENAI_COMPATIBLE_BASE_URL:-http://host.docker.internal:8000/v1}
-      IC_OPENAI_COMPATIBLE_MODEL: ${IC_OPENAI_COMPATIBLE_MODEL:-gpt-oss-20b}
-      IC_OPENAI_COMPATIBLE_API_KEY: ${IC_OPENAI_COMPATIBLE_API_KEY:-dummy}
+      IC_OPENAI_COMPATIBLE_BASE_URL: ${IC_OPENAI_COMPATIBLE_BASE_URL:-http://litellm:4000/v1}
+      IC_OPENAI_COMPATIBLE_MODEL: ${IC_OPENAI_COMPATIBLE_MODEL:-incident-diagnosis}
+      IC_OPENAI_COMPATIBLE_API_KEY: ${IC_OPENAI_COMPATIBLE_API_KEY:-${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env before starting the stack}}
     volumes:
       - ./data:/app/data
       - ${IC_REPOSITORIES_DIR:-.}:/repositories:ro
@@ -126,7 +151,10 @@ services:
       timeout: 5s
       retries: 5
     depends_on:
-      - temporal
+      temporal:
+        condition: service_started
+      litellm:
+        condition: service_healthy
 
   gitnexus:
     restart: unless-stopped

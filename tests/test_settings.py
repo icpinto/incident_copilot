@@ -3,9 +3,23 @@ from pathlib import Path
 import pytest
 
 from incident_copilot.core.settings import Settings
-
+from incident_copilot.llm.adapters.openai_compatible import OpenAICompatibleClient
+from incident_copilot.llm.client import get_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_default_llm_settings_use_the_host_gateway(monkeypatch):
+    for name in ("IC_LLM_PROVIDER", "IC_OPENAI_COMPATIBLE_BASE_URL",
+                 "IC_OPENAI_COMPATIBLE_MODEL", "IC_OPENAI_COMPATIBLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    config = Settings(_env_file=None)
+    assert config.llm_provider == "openai_compatible"
+    client = get_client(config)
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client.base_url == "http://localhost:4000/v1"
+    assert client.model == "incident-diagnosis"
+    assert client.api_key == ""
 
 
 def test_relative_paths_resolve_from_project_root() -> None:

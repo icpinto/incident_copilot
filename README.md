@@ -44,7 +44,7 @@ This repository is a working scaffold and MVP:
 - Temporal workflow and worker included
 - LangGraph diagnosis graph included
 - local LLM adapters included (Ollama and OpenAI-compatible endpoints)
-- optional LiteLLM Gateway for provider routing through the existing OpenAI-compatible adapter
+- LiteLLM Gateway as the default LLM route through the existing OpenAI-compatible adapter
 - Tree-sitter syntax-tree indexing via the optional `parsing` extra, with safe fallback
 - React operations dashboard with saved incident history, evidence views, and configuration
 - durable dashboard submissions and progress tracking through Temporal
@@ -54,7 +54,9 @@ It is designed to be extended, not treated as finished enterprise software.
 
 ## Dashboard quick start
 
-With Docker Desktop running:
+With Docker Desktop running, copy `.env.example` to `.env` if needed and set a
+private `LITELLM_MASTER_KEY` as described in [gateway setup](docs/litellm.md).
+Then start the stack, including LiteLLM:
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build -d
@@ -68,7 +70,7 @@ is available at http://localhost:8233.
    `/repositories` as the profile path and `docker-compose.dev.yml` as its Compose file
    to analyze this project. Set `IC_REPOSITORIES_DIR` before starting Compose to mount
    another source directory there instead.
-3. Open **Configuration** to select the LLM provider/model and tune analysis limits.
+3. Open **Configuration** to review the default LiteLLM endpoint/model alias and tune analysis limits.
 4. Start **New analysis**, choose a repository, and paste or load error logs.
 5. Follow activity stages, inspect hypotheses and source evidence, and export the report.
 
@@ -91,8 +93,11 @@ npm run build
 cd ../..
 ```
 
-Start Temporal, set `IC_TEMPORAL_HOST=localhost:7233` in the environment of **both**
-the API and worker, and start each in a separate terminal:
+Start Temporal and LiteLLM with `docker compose -f docker-compose.dev.yml up -d temporal litellm`.
+Set `IC_TEMPORAL_HOST=localhost:7233` and
+`IC_OPENAI_COMPATIBLE_BASE_URL=http://localhost:4000/v1` in the environment of **both**
+the API and worker, use the gateway key for `IC_OPENAI_COMPATIBLE_API_KEY`, and
+start each in a separate terminal:
 
 ```bash
 python apps/worker/main.py
@@ -113,7 +118,7 @@ When the worker runs on the host, repository profiles use host filesystem paths.
   data, `.env`, and frontend build/dependency outputs are excluded from Git.
 - Saved dashboard overrides take precedence over `IC_*` environment settings.
   **Reset** removes an override and restores its environment or built-in default.
-  Application settings are not loaded from `configs/`. The optional LiteLLM service
+  Application settings are not loaded from `configs/`. The LiteLLM service
   reads its own mounted `configs/litellm.yaml`.
 - LLM and analysis changes affect new runs. Application, Temporal, and artifact
   storage changes remain pending until API and worker restart. Activation is deferred
@@ -193,7 +198,8 @@ See [agentic investigation](docs/agentic-investigation.md) for limits, checkpoin
 
 ### 2) Start Temporal + worker locally
 
-A dev compose file is included for Temporal, Postgres, Temporal UI, and the Incident Copilot worker:
+A dev compose file includes Temporal, Postgres, Temporal UI, LiteLLM Gateway, and
+the Incident Copilot API and worker. Configure `LITELLM_MASTER_KEY` first:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
@@ -220,36 +226,34 @@ python apps/cli/main.py diagnose \
 uvicorn apps.api.main:app --reload --port 8080
 ```
 
-## Suggested local LLM setup
+## Default LLM gateway
 
-Use Ollama with `llama3.1:8b` at `http://host.docker.internal:11434`.
+LiteLLM Gateway starts with the main Compose stack. Both single-pass diagnosis and
+iterative investigation use its stable `incident-diagnosis` model alias. By default,
+the gateway routes to Ollama with `llama3.1:8b` at `http://host.docker.internal:11434`.
 
 Example `.env` values:
 
 ```env
-IC_LLM_PROVIDER=ollama
-IC_OLLAMA_BASE_URL=http://host.docker.internal:11434
-IC_OLLAMA_MODEL=llama3.1:8b
+LITELLM_MASTER_KEY=sk-<generated-value>
+LITELLM_MODEL=ollama_chat/llama3.1:8b
+LITELLM_API_BASE=http://host.docker.internal:11434
+LITELLM_API_KEY=ollama
+IC_LLM_PROVIDER=openai_compatible
+IC_OPENAI_COMPATIBLE_BASE_URL=http://litellm:4000/v1
+IC_OPENAI_COMPATIBLE_MODEL=incident-diagnosis
+IC_OPENAI_COMPATIBLE_API_KEY=${LITELLM_MASTER_KEY}
 ```
 
-The application uses the `IC_` prefix for environment variables. The Docker worker
-uses these values by default and accepts overrides from the environment or `.env`.
-When running directly on the host, set `IC_OLLAMA_BASE_URL=http://localhost:11434`
-if Ollama is listening locally.
-
-### LiteLLM Gateway
-
-Run an optional gateway with a stable `incident-diagnosis` model alias for both
-single-pass diagnosis and iterative investigation. Generate `LITELLM_MASTER_KEY`
-and add it to `.env`, then start the stack with:
+Generate a private gateway key as described in the setup guide, then run:
 
 ```bash
-docker compose -f docker-compose.dev.yml -f docker-compose.litellm.yml up --build -d
+docker compose -f docker-compose.dev.yml up --build -d
 ```
 
-The overlay configures both API and worker to use `http://litellm:4000/v1` and
-routes the alias to Ollama by default. Saved dashboard model overrides still take
-precedence; reset those fields to use the overlay's values. See
+The API and worker wait for the gateway to become healthy. Saved dashboard model
+overrides still take precedence; reset those fields to use the defaults. Host
+processes use `http://localhost:4000/v1`. See
 [LiteLLM setup, provider examples, and connection checks](docs/litellm.md).
 
 ## Managed code graph knowledge

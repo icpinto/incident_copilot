@@ -7,10 +7,10 @@ import type { SettingsData } from '../types';
 
 type Field = { key: string; label: string; help?: string; type?: 'number' | 'password' | 'select'; options?: string[]; external?: boolean };
 const groups: { title: string; description: string; fields: Field[] }[] = [
-  { title: 'Language model', description: 'Used by new analyses. Deterministic diagnosis remains available if the model is unreachable.', fields: [
-    { key: 'llm_provider', label: 'Provider', type: 'select', options: ['ollama', 'openai_compatible'] },
+  { title: 'Language model', description: 'New analyses use LiteLLM Gateway by default. Deterministic diagnosis remains available if the model is unreachable.', fields: [
+    { key: 'llm_provider', label: 'Provider', type: 'select', options: ['openai_compatible', 'ollama'] },
     { key: 'ollama_base_url', label: 'Ollama endpoint', help: 'Use a URL reachable from the worker.' }, { key: 'ollama_model', label: 'Ollama model' },
-    { key: 'openai_compatible_base_url', label: 'OpenAI-compatible endpoint', help: 'For LiteLLM, select OpenAI compatible and use http://litellm:4000/v1 in Docker, or http://localhost:4000/v1 on the host.' },
+    { key: 'openai_compatible_base_url', label: 'OpenAI-compatible endpoint', help: 'The default LiteLLM endpoint is http://litellm:4000/v1 in Docker, or http://localhost:4000/v1 on the host.' },
     { key: 'openai_compatible_model', label: 'OpenAI-compatible model', help: 'For LiteLLM, use the gateway model alias, such as incident-diagnosis.' },
     { key: 'openai_compatible_api_key', label: 'API key', type: 'password', help: 'Stored server-side. Leave blank to keep the current key. For LiteLLM, use the gateway key.' },
   ] },
