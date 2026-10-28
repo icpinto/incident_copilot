@@ -10,8 +10,9 @@ const groups: { title: string; description: string; fields: Field[] }[] = [
   { title: 'Language model', description: 'Used by new analyses. Deterministic diagnosis remains available if the model is unreachable.', fields: [
     { key: 'llm_provider', label: 'Provider', type: 'select', options: ['ollama', 'openai_compatible'] },
     { key: 'ollama_base_url', label: 'Ollama endpoint', help: 'Use a URL reachable from the worker.' }, { key: 'ollama_model', label: 'Ollama model' },
-    { key: 'openai_compatible_base_url', label: 'OpenAI-compatible endpoint' }, { key: 'openai_compatible_model', label: 'OpenAI-compatible model' },
-    { key: 'openai_compatible_api_key', label: 'API key', type: 'password', help: 'Stored server-side. Leave blank to keep the current key.' },
+    { key: 'openai_compatible_base_url', label: 'OpenAI-compatible endpoint', help: 'For LiteLLM, select OpenAI compatible and use http://litellm:4000/v1 in Docker, or http://localhost:4000/v1 on the host.' },
+    { key: 'openai_compatible_model', label: 'OpenAI-compatible model', help: 'For LiteLLM, use the gateway model alias, such as incident-diagnosis.' },
+    { key: 'openai_compatible_api_key', label: 'API key', type: 'password', help: 'Stored server-side. Leave blank to keep the current key. For LiteLLM, use the gateway key.' },
   ] },
   { title: 'Analysis limits', description: 'Bound the investigation. Each run captures an immutable settings revision.', fields: [
     { key: 'top_k_candidates', label: 'Maximum candidates', type: 'number', help: 'Maximum source candidates retained by the diagnosis.' },

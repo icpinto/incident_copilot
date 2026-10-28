@@ -5,6 +5,7 @@ import logging
 import httpx
 import pytest
 
+from incident_copilot.core.settings import Settings
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.graph.nodes import build_hypotheses
 from incident_copilot.llm.adapters.ollama import OllamaClient
@@ -40,7 +41,7 @@ def state():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider", ["ollama", "openai_compatible"])
+@pytest.mark.parametrize("provider", ["ollama", "openai_compatible", "litellm_gateway"])
 async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypatch, provider):
     # Exercise the actual adapters and graph against an in-process HTTP transport.
     output = json.dumps({**OUTCOME, "hypotheses": [hypothesis(2), hypothesis(1)]})
@@ -57,6 +58,9 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
             response = {"response": output}
         else:
             assert request.url.path == "/v1/chat/completions"
+            assert request.headers["Authorization"] == "Bearer test-key"
+            assert payload["model"] == ("incident-diagnosis" if provider == "litellm_gateway" else "test-model")
+            assert payload["temperature"] == 0
             response_format = payload["response_format"]
             assert response_format["type"] == "json_schema"
             assert response_format["json_schema"]["strict"] is True
@@ -92,13 +96,15 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
             **kwargs,
         ),
     )
-    client = (
-        OllamaClient("http://model.test", "test-model")
-        if provider == "ollama"
-        else OpenAICompatibleClient("http://model.test/v1", "test-key", "test-model")
+    config = Settings(
+        _env_file=None, agentic_enabled=False,
+        llm_provider="ollama" if provider == "ollama" else "openai_compatible",
+        ollama_base_url="http://model.test", ollama_model="test-model",
+        openai_compatible_base_url="http://litellm:4000/v1/" if provider == "litellm_gateway" else "http://model.test/v1",
+        openai_compatible_api_key="test-key",
+        openai_compatible_model="incident-diagnosis" if provider == "litellm_gateway" else "test-model",
     )
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: client)
-    report = build_report(await run_diagnosis_graph(state()))
+    report = build_report(await run_diagnosis_graph(state(), config))
     assert len(requests) == 1
     assert report.engine == "deterministic+llm"
     assert report.fallback_reason is None
@@ -247,9 +253,10 @@ async def test_cancellation_is_not_converted_to_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["ollama", "openai_compatible"])
-async def test_endpoint_rejecting_schema_falls_back_safely(monkeypatch, caplog, provider):
+@pytest.mark.parametrize("status", [400, 401, 429, 503])
+async def test_endpoint_failure_falls_back_safely(monkeypatch, caplog, provider, status):
     def handle(request):
-        return httpx.Response(400, json={"error": "schema unsupported: private-key-sentinel"})
+        return httpx.Response(status, json={"error": "provider failure: private-key-sentinel"})
 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(

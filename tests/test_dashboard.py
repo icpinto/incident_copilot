@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -200,6 +201,34 @@ def test_settings_errors_do_not_echo_credentials(client):
     assert response.status_code == 422 and secret not in response.text
     response = client.put("/api/settings", json={"values": {"openai_compatible_api_key": secret}})
     assert response.status_code == 200 and secret not in response.text
+
+
+@pytest.mark.parametrize("status", [200, 401, 503])
+def test_gateway_connection_check_uses_saved_endpoint_and_redacts_key(client, monkeypatch, status):
+    key = "sk-private-gateway-check"
+    saved = client.put("/api/settings", json={"values": {
+        "llm_provider": "openai_compatible",
+        "openai_compatible_base_url": "http://litellm:4000/v1/",
+        "openai_compatible_model": "incident-diagnosis",
+        "openai_compatible_api_key": key,
+    }})
+    assert saved.status_code == 200 and key not in saved.text
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert str(request.url) == "http://litellm:4000/v1/models"
+        assert request.headers["Authorization"] == f"Bearer {key}"
+        return httpx.Response(status, json={"data": [{"id": "incident-diagnosis"}], "error": key})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(
+        transport=httpx.MockTransport(handle), **kwargs))
+    result = client.post("/api/connections/check", json={"target": "llm"})
+    assert result.status_code == 200
+    assert result.json()["ok"] is (status == 200)
+    assert key not in result.text
+    assert len(requests) == 1
 
 
 def test_redaction_preserves_structural_status_fields(service, tmp_path):

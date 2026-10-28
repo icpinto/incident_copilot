@@ -44,6 +44,7 @@ This repository is a working scaffold and MVP:
 - Temporal workflow and worker included
 - LangGraph diagnosis graph included
 - local LLM adapters included (Ollama and OpenAI-compatible endpoints)
+- optional LiteLLM Gateway for provider routing through the existing OpenAI-compatible adapter
 - Tree-sitter syntax-tree indexing via the optional `parsing` extra, with safe fallback
 - React operations dashboard with saved incident history, evidence views, and configuration
 - durable dashboard submissions and progress tracking through Temporal
@@ -112,7 +113,8 @@ When the worker runs on the host, repository profiles use host filesystem paths.
   data, `.env`, and frontend build/dependency outputs are excluded from Git.
 - Saved dashboard overrides take precedence over `IC_*` environment settings.
   **Reset** removes an override and restores its environment or built-in default.
-  The YAML files in `configs/` are examples, not additional runtime settings sources.
+  Application settings are not loaded from `configs/`. The optional LiteLLM service
+  reads its own mounted `configs/litellm.yaml`.
 - LLM and analysis changes affect new runs. Application, Temporal, and artifact
   storage changes remain pending until API and worker restart. Activation is deferred
   while incidents are queued or running; the UI shows saved and active values.
@@ -234,6 +236,21 @@ The application uses the `IC_` prefix for environment variables. The Docker work
 uses these values by default and accepts overrides from the environment or `.env`.
 When running directly on the host, set `IC_OLLAMA_BASE_URL=http://localhost:11434`
 if Ollama is listening locally.
+
+### LiteLLM Gateway
+
+Run an optional gateway with a stable `incident-diagnosis` model alias for both
+single-pass diagnosis and iterative investigation. Generate `LITELLM_MASTER_KEY`
+and add it to `.env`, then start the stack with:
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.litellm.yml up --build -d
+```
+
+The overlay configures both API and worker to use `http://litellm:4000/v1` and
+routes the alias to Ollama by default. Saved dashboard model overrides still take
+precedence; reset those fields to use the overlay's values. See
+[LiteLLM setup, provider examples, and connection checks](docs/litellm.md).
 
 ## Managed code graph knowledge
 

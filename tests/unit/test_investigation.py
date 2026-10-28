@@ -1,6 +1,7 @@
 import json
 import time
 
+import httpx
 import pytest
 
 from incident_copilot.core.settings import Settings
@@ -371,3 +372,41 @@ def test_investigation_rejects_provisional_without_hypotheses():
     with pytest.raises(ValidationError, match="provisional_requires_hypothesis"):
         investigation.InvestigationDecision.model_validate({**OUTCOME, "action": "finish",
             "hypotheses": [], "requests": [], "unresolved_gaps": []})
+
+
+@pytest.mark.asyncio
+async def test_gateway_adapter_supports_iterative_evidence_retrieval(case, monkeypatch):
+    _, _, settings, payload, runtime = case
+    settings = settings.model_copy(update={
+        "llm_provider": "openai_compatible",
+        "openai_compatible_base_url": "http://litellm:4000/v1",
+        "openai_compatible_model": "incident-diagnosis",
+        "openai_compatible_api_key": "sk-test-gateway",
+    })
+    calls = []
+
+    def handle(request):
+        assert str(request.url) == "http://litellm:4000/v1/chat/completions"
+        assert request.headers["Authorization"] == "Bearer sk-test-gateway"
+        body = json.loads(request.content)
+        assert body["model"] == "incident-diagnosis"
+        assert body["response_format"]["json_schema"]["strict"] is True
+        assert body["response_format"]["json_schema"]["schema"] == investigation.strict_schema()
+        prompt = body["messages"][1]["content"]
+        calls.append(body)
+        if len(calls) == 1:
+            output = response(prompt, [{"tool": "read_source", "question": "Inspect the failing code",
+                                        "file_path": "cache.py"}])
+        else:
+            source = next(item for item in json.loads(prompt)["evidence"] if item["kind"] == "source")
+            output = response(prompt, refs=[source["id"]])
+        return httpx.Response(200, json={"choices": [{"message": {"content": output}}]})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(
+        transport=httpx.MockTransport(handle), **kwargs))
+    result = await run_diagnosis_graph(payload, settings, runtime)
+    assert len(calls) == result["investigation"]["model_calls"] == 2
+    assert result["investigation"]["tool_calls"] == 1
+    assert result["investigation"]["stop_reason"] == "model_finished"
+    assert result["engine"] == "deterministic+llm" and result["fallback_reason"] is None
