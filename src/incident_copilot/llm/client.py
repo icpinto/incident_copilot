@@ -4,7 +4,7 @@ from .adapters.ollama import OllamaClient
 from .adapters.openai_compatible import OpenAICompatibleClient
 
 
-def get_client(runtime_settings=None):
+def get_raw_client(runtime_settings=None):
     config = runtime_settings or settings
     provider = config.llm_provider.lower()
     if provider == "ollama":
@@ -14,3 +14,13 @@ def get_client(runtime_settings=None):
         config.openai_compatible_api_key,
         config.openai_compatible_model,
     )
+
+
+def get_client(runtime_settings=None, *, guardrail_context=None):
+    config = runtime_settings or settings
+    raw = get_raw_client(config)
+    if config.guardrails_mode == "off" and guardrail_context is None:
+        return raw
+    from .guardrails import GuardedClient, GuardrailContext
+
+    return GuardedClient(raw, guardrail_context or GuardrailContext(config))

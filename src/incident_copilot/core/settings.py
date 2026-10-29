@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     agentic_max_tool_requests: int = Field(default=12, ge=1, le=12)
     agentic_timeout_seconds: float = Field(default=180, gt=0, le=180)
 
+    guardrails_mode: Literal["off", "observe", "enforce"] = "off"
+    guardrails_timeout_seconds: float = Field(default=10, gt=0, le=180)
+
     code_graph_enabled: bool = True
     code_graph_mode: Literal["managed", "external"] = "managed"
     code_graph_prepare_timeout_seconds: float = Field(default=300, gt=0, le=300)

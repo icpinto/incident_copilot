@@ -39,6 +39,8 @@ def test_external_gateway_settings_reach_both_processes(compose):
         "IC_OPENAI_COMPATIBLE_BASE_URL": "https://gateway.example/v1",
         "IC_OPENAI_COMPATIBLE_MODEL": "incident-diagnosis",
         "IC_OPENAI_COMPATIBLE_API_KEY": "sk-test-virtual-key",
+        "IC_GUARDRAILS_MODE": "observe",
+        "IC_GUARDRAILS_TIMEOUT_SECONDS": "10",
     }
     result = compose(variables=variables)
     assert result.returncode == 0, result.stderr

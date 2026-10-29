@@ -125,7 +125,7 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             # This activity owns the evidence snapshot throughout reasoning. Updating
             # it here also prevents the final stage write from losing streamed data.
             evidence.update({key: value for key, value in update.items() if key in {
-                "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors",
+                "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors", "guardrails",
             }})
             redacted = Configuration(store, activate=False).redact(evidence)
             store.update("incidents", incident_id, {"evidence": redacted, "updated_at": utcnow()})
@@ -141,7 +141,7 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
                 execution_id=incident_id, progress=progress, heartbeat=heartbeat,
             ))
         await progress({key: state[key] for key in (
-            "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors",
+            "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors", "guardrails",
         ) if key in state})
         report = build_report(state).model_dump(mode="json")
         # Redact at persistence time as well as at the HTTP boundary.

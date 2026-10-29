@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,6 +169,35 @@ describe('dashboard workflows', () => {
     view(<Pipeline run={{ ...run, status: 'running', stage: 'indexing', timeline: [{ stage: 'indexing', started_at: new Date().toISOString(), completed_at: null, attempt: 2 }] }} />);
     expect(screen.getByText('Attempt 2')).toBeInTheDocument();
     expect(screen.getByText('Repository indexing')).toBeInTheDocument();
+  });
+
+  it.each(['running', 'completed'] as const)('shows guardrail findings and overhead for a %s analysis', async status => {
+    const guardrails = { mode: 'observe', policy_version: 'incident-v1-test', checks: 2, model_calls: 1, duration_ms: 125,
+      events: [{ id: 'gr-test', stage: 'input', status: 'flagged', code: 'prompt_injection', model_call: 1, duration_ms: 125 }] };
+    mockFetch(() => ({ ...run, status, report: status === 'completed' ? { ...run.report, guardrails } : null,
+      evidence: { ...run.evidence, guardrails } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    const panel = await screen.findByRole('region', { name: 'Guardrails' });
+    expect(panel).toHaveTextContent('Observation mode records findings');
+    expect(panel).toHaveTextContent('Policy findings');
+    expect(panel).toHaveTextContent('Additional model calls');
+    await userEvent.click(screen.getByText('Policy check details'));
+    expect(panel).toHaveTextContent('prompt injection');
+    expect(panel).toHaveTextContent('incident-v1-test');
+  });
+
+  it('saves guardrail modes without requesting a process restart', async () => {
+    const requests: unknown[] = [];
+    const data = { saved: { guardrails_mode: 'off', guardrails_timeout_seconds: 10 }, active: {}, overridden: [], restart_required: [], infrastructure_fields: [], control_db_path: '/data/control.db', secret_configured: false };
+    mockFetch((_url, init) => { if (init?.method === 'PUT') requests.push(JSON.parse(String(init.body))); return data; });
+    view(<Settings />);
+    const mode = await screen.findByLabelText('Guardrails mode');
+    expect(screen.getByRole('option', { name: 'Observe' })).toBeInTheDocument();
+    await userEvent.selectOptions(mode, 'observe');
+    expect(mode.closest('section')).toHaveTextContent('Next analysis');
+    fireEvent.submit(document.getElementById('settings-form')!);
+    await waitFor(() => expect(requests).toEqual([{ values: { guardrails_mode: 'observe' }, reset: [] }]));
+    expect(screen.getByLabelText('Policy check timeout (seconds)')).toHaveValue(10);
   });
 
   it.each(['running', 'completed'] as const)('shows typed validation errors for a %s analysis', async status => {

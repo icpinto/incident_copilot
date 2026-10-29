@@ -9,6 +9,7 @@ import { isActive, type Incident, type IncidentPage, type Repository } from '../
 import { chartTooltip } from './Overview';
 import { Investigation } from '../Investigation';
 import { ValidationErrors } from '../ValidationErrors';
+import { Guardrails } from '../Guardrails';
 import { IncidentTimeline, OriginalLogs } from '../IncidentTimeline';
 
 export function Incidents() {
@@ -67,6 +68,7 @@ export function IncidentDetail() {
     <div className="run-summary"><Badge status={run.status} /><span><GitBranch size={14} />{report?.likely_service || 'Service pending'}</span><span><FileText size={14} />{report?.likely_error_class || 'Error class pending'}</span><span className="mono">{duration(elapsed(run.created_at, run.completed_at))}</span><span className="engine-chip">{report?.engine === 'deterministic+llm' ? 'LLM assisted' : report ? 'Deterministic analysis' : 'Temporal workflow'}</span></div>
     {isActive(run) && ['queued', 'preparing'].includes(run.evidence.graph_preparation?.status || '') && <Notice>Preparing code graph for this repository. Analysis waits up to five minutes, then continues without graph evidence if needed.</Notice>}
     <ValidationErrors errors={report?.validation_errors?.length ? report.validation_errors : run.evidence.validation_errors} />
+    <Guardrails summary={report?.guardrails || run.evidence.guardrails} />
     <div className="tabs" role="tablist" aria-label="Analysis views">{[['diagnosis', 'Diagnosis'], ['evidence', `Source evidence (${candidates.length})`], ['logs', 'Logs & trace'], ['execution', 'Run details']].map(([key, label]) => <button id={`tab-${key}`} role="tab" aria-selected={tab === key} aria-controls={`panel-${key}`} tabIndex={tab === key ? 0 : -1} key={key} onClick={() => setTab(key)} onKeyDown={e => { const keys = ['diagnosis', 'evidence', 'logs', 'execution']; if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = keys[(keys.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : 3)) % 4]; setTab(next); document.getElementById(`tab-${next}`)?.focus(); } }}>{label}</button>)}</div>
     <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
     {(tab === 'diagnosis' || tab === 'evidence' || tab === 'execution') && <Investigation summary={investigation} evidence={retrievedEvidence} events={investigationEvents} />}

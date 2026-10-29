@@ -1,0 +1,11 @@
+define flow incident input check
+  $result = execute incident_check_input
+  if $result.is_blocked
+    bot refuse to respond
+    stop
+
+define flow incident output check
+  $result = execute incident_check_output
+  if $result.is_blocked
+    bot refuse to respond
+    stop

@@ -1,0 +1,9 @@
+models: []
+colang_version: "1.0"
+rails:
+  input:
+    flows:
+      - incident input check
+  output:
+    flows:
+      - incident output check

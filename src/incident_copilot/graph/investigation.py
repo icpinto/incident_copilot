@@ -28,6 +28,7 @@ from incident_copilot.graph.nodes.select_candidates import select_candidates_nod
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.llm.client import get_client
+from incident_copilot.llm.guardrails import GuardrailContext, GuardrailFailure
 from incident_copilot.llm.structured_output import report_hypothesis
 from incident_copilot.llm.validation import (
     SEMANTIC_MESSAGES,
@@ -157,7 +158,7 @@ def strict_schema() -> dict:
     return schema
 
 
-def build_investigation_prompt(state: dict, budget: dict) -> str:
+def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict | None = None) -> str:
     """Select bounded, valid JSON; never cut a serialized JSON value mid-string."""
     response_schema = strict_schema()
     schema_bytes = len(encoded(response_schema))
@@ -208,6 +209,9 @@ def build_investigation_prompt(state: dict, budget: dict) -> str:
     result = encoded(payload).decode()
     if len(result.encode()) > available:
         raise validation_failure(stage="investigation_assessment", kind="limit", code="prompt_limit")
+    if policy_view is not None:
+        policy_view.update({key: value for key, value in payload.items()
+                            if key not in {"task", "response_schema", "budget", "analysis_scope"}})
     return result
 
 
@@ -251,7 +255,8 @@ def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
             "retrieved_evidence": list(state.get("evidence_records", {}).values()),
             "investigation_events": state.get("investigation_events", []),
             "graph_context": state.get("graph_context"),
-            "validation_errors": state.get("validation_errors", [])}
+            "validation_errors": state.get("validation_errors", []),
+            "guardrails": state.get("guardrails")}
 
 
 def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
@@ -316,6 +321,9 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
     async with execution_lock(directory / "execution.lock"):
         journal = InvestigationStore(directory / "requests.sqlite")
         journal.initialize(settings.agentic_timeout_seconds)
+        guardrails = (GuardrailContext(settings, journal=journal,
+                                      deadline=journal.budget()["deadline"])
+                      if settings.guardrails_mode != "off" or journal.get("guardrails") else None)
         snapshot = journal.get("snapshot")
         if snapshot is None:
             revision = await asyncio.to_thread(clean_revision, runtime.repo_root)
@@ -342,7 +350,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
 
         def stop(state, reason):
             return {"investigation_progress": {**state.get("investigation_progress", {}), "stop_reason": reason},
-                    "execution_budget": journal.budget()}
+                    "execution_budget": journal.budget(),
+                    "guardrails": guardrails.summary() if guardrails else None}
 
         async def validation_stop(state, diagnostic):
             reason = ("evidence_validation_failed" if diagnostic.stage == "evidence_retrieval"
@@ -353,6 +362,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             return result
 
         async def publish(state):
+            if guardrails:
+                state["guardrails"] = guardrails.summary()
             if runtime.heartbeat:
                 runtime.heartbeat()
             if runtime.progress:
@@ -374,10 +385,22 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     return stop(state, "model_call_limit")
                 started = time.monotonic()
                 try:
-                    prompt = build_investigation_prompt(state, journal.budget())
+                    view = {}
+                    prompt = build_investigation_prompt(state, journal.budget(), policy_view=view)
+                    if guardrails:
+                        guardrails.input_text = encoded(view).decode()
+                        guardrails.model_call = journal.budget()["model_calls"]
+
+                        async def guardrail_progress(summary):
+                            state["guardrails"] = summary
+                            await publish(state)
+
+                        guardrails.on_update = guardrail_progress
                     async with asyncio.timeout(max(0.001, journal.budget()["deadline"] - time.time())):
-                        response = await get_client(settings).complete(prompt=prompt, system_prompt=SYSTEM_PROMPT,
-                                                                       response_schema=strict_schema())
+                        client = (get_client(settings, guardrail_context=guardrails) if guardrails
+                                  else get_client(settings))
+                        response = await client.complete(prompt=prompt, system_prompt=SYSTEM_PROMPT,
+                                                         response_schema=strict_schema())
                     if isinstance(response, str) and len(response.encode()) > MAX_EVIDENCE_BYTES:
                         raise validation_failure(stage="investigation_assessment", kind="limit",
                                                  code="response_too_large", model_call=journal.budget()["model_calls"])
@@ -400,6 +423,11 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     journal.put(key, saved)
                 except asyncio.CancelledError:
                     raise
+                except GuardrailFailure as exc:
+                    journal.put(key, {"guardrail_stop": exc.reason})
+                    result = stop(state, exc.reason)
+                    await publish(dict(state) | result)
+                    return result
                 except TimeoutError:
                     return stop(state, "deadline")
                 except AnalysisValidationFailure as exc:
@@ -414,10 +442,13 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     return stop(state, "llm_request_failed")
             if "validation_error" in saved:
                 return await validation_stop(state, AnalysisValidationError.model_validate(saved["validation_error"]))
+            if "guardrail_stop" in saved:
+                return stop(state, saved["guardrail_stop"])
             decision = saved["decision"]
             event = InvestigationEvent(id=key, kind="assessment", status="completed", duration_ms=saved["duration_ms"])
             return {"assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
                     "engine": "deterministic+llm", "execution_budget": journal.budget(),
+                    "guardrails": guardrails.summary() if guardrails else None,
                     "investigation_events": list({e["id"]: e for e in state.get("investigation_events", []) + [event.model_dump(mode="json")]}.values())}
 
         async def control(state):
@@ -532,6 +563,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             return result
 
         async def finalize(state):
+            if guardrails:
+                state["guardrails"] = guardrails.summary()
             reason = state.get("investigation_progress", {}).get("stop_reason", "model_finished")
             try:
                 await asyncio.to_thread(tools.validate_source)

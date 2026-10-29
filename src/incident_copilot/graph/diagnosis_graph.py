@@ -31,14 +31,14 @@ async def run_diagnosis_graph(payload: dict[str, Any], runtime_settings=None, ru
                 reason = "source_snapshot_unverified"
         # Preserve the established single-pass path and explicitly report the downgrade.
         fallback_settings = runtime_settings.model_copy(update={"agentic_enabled": False})
-        state = await run_diagnosis_graph(payload, fallback_settings)
+        state = await run_diagnosis_graph(payload, fallback_settings, runtime_context)
         from incident_copilot.schemas.investigation import InvestigationSummary
         state["investigation"] = InvestigationSummary(
             stop_reason=reason, incomplete=True, model_calls=int(bool(state.get("candidates"))),
         ).model_dump(mode="json")
         return state
     async def hypotheses_node(state):
-        return await build_hypotheses_node(state, runtime_settings)
+        return await build_hypotheses_node(state, runtime_settings, runtime_context)
 
     if StateGraph is None:
         state: DiagnosisState = payload  # fallback

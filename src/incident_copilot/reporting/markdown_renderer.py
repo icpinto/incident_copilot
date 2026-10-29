@@ -45,6 +45,17 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                 parts.append(f"- Limitation: {limitation}")
             fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", event.message)), default=0) + 1)
             parts.extend(["", fence, event.message, fence, ""])
+    if report.guardrails is not None:
+        checks = report.guardrails
+        parts.extend(["", "## Guardrails", "",
+                      f"- Mode: {checks.mode}; policy: `{checks.policy_version}`",
+                      f"- Checks: {checks.checks}; additional model calls: {checks.model_calls}",
+                      f"- Check duration: {checks.duration_ms / 1000:.2f} seconds",
+                      "- Observation mode records findings without blocking." if checks.mode == "observe"
+                      else "- Enforcement stops processing when a check rejects content or is unavailable."])
+        for event in checks.events:
+            parts.append(f"- {event.stage}, assessment {event.model_call}: {event.status} "
+                         f"(`{event.code}`; {event.duration_ms:.0f} ms)")
     if report.validation_errors:
         parts.extend(["", "## Analysis Validation Errors", ""])
         for failure in report.validation_errors:

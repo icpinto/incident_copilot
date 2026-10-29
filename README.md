@@ -37,6 +37,9 @@ evidence, while other groups remain visible in the dashboard and report exports.
 
 ## Current status
 
+Optional [NeMo Guardrails policy checks](docs/guardrails.md) support observation and
+enforcement for prompt injection and credential disclosure in both diagnosis modes.
+
 This repository is a working scaffold and MVP:
 
 - deterministic localization implemented

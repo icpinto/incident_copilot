@@ -29,6 +29,13 @@ def test_relative_paths_resolve_from_project_root() -> None:
     assert app_settings.index_db_path == PROJECT_ROOT / "tmp-index/repo.db"
 
 
+@pytest.mark.parametrize("values", [{"guardrails_mode": "invalid"}, {"guardrails_timeout_seconds": 0},
+                                    {"guardrails_timeout_seconds": 181}])
+def test_guardrail_settings_reject_invalid_values(values):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, **values)
+
+
 def test_directory_index_db_path_raises_on_ensure_directories(tmp_path: Path) -> None:
     db_dir = tmp_path / "index_dir"
     db_dir.mkdir(parents=True)

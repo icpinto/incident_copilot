@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+guardrails = [
+  "nemoguardrails==0.24.1",
+]
 codegraph = [
   "mcp==1.30.0",
   "sse-starlette>=2,<3",
@@ -61,6 +64,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"incident_copilot.llm" = ["policies/*.yml", "policies/*.co", "policies/*.txt"]
 
 [tool.ruff]
 line-length = 100

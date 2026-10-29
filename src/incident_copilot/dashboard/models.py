@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from incident_copilot.schemas.candidates import CandidateLocation
 from incident_copilot.schemas.code_graph import GraphContext, GraphPreparation
 from incident_copilot.schemas.diagnosis import DiagnosisReport
+from incident_copilot.schemas.guardrails import GuardrailSummary
 from incident_copilot.schemas.index import RepoIndexSummary
 from incident_copilot.schemas.investigation import (
     EvidenceItem,
@@ -63,6 +64,7 @@ class IncidentEvidence(BaseModel):
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
     validation_errors: list[AnalysisValidationError] = Field(default_factory=list)
+    guardrails: GuardrailSummary | None = None
 
 
 class IncidentRecord(BaseModel):

@@ -94,6 +94,44 @@ def redact_evidence(value: Any, settings: Settings) -> Any:
     return _redact_value(value, _configured_secrets(settings))
 
 
+def contains_secret(text: str, settings: Settings) -> bool:
+    """Detect disclosure locally, including credentials escaped inside JSON strings."""
+    secrets = _configured_secrets(settings)
+
+    def placeholder(value: str) -> bool:
+        value = value.strip().strip("\"'").strip().lower()
+        return (not value or value in {"dummy", "example", "changeme", "none", "null",
+                                      "[redacted]", "[redacted private key]", "***", "..."}
+                or value.startswith(("<", "${", "your-", "your_", "os.getenv(",
+                                     "os.environ", "process.env.")))
+
+    def scan(value) -> bool:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if (_SECRET_ASSIGNMENT.match(f"{key}=") and isinstance(item, str)
+                        and not placeholder(item)):
+                    return True
+                if scan(item):
+                    return True
+        elif isinstance(value, list):
+            return any(scan(item) for item in value)
+        elif isinstance(value, str):
+            if any(secret in value for secret in secrets):
+                return True
+            if _PRIVATE_KEY.search(value) or _CREDENTIAL_URL.search(value):
+                return True
+            for line in value.splitlines():
+                match = _SECRET_ASSIGNMENT.search(line)
+                if match and not placeholder(line[match.end(1):]):
+                    return True
+        return False
+
+    try:
+        return scan(json.loads(text))
+    except (ValueError, TypeError):
+        return scan(text)
+
+
 class EvidenceTools:
     def __init__(self, repo_root: Path, index_db_path: Path, settings: Settings, snapshot: dict[str, Any]):
         self.root = Path(repo_root).resolve()

@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from incident_copilot.schemas.guardrails import GuardrailSummary
 from incident_copilot.schemas.validation import AnalysisValidationError
 
 from .candidates import CandidateLocation
@@ -56,3 +57,4 @@ class DiagnosisReport(BaseModel):
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
     validation_errors: list[AnalysisValidationError] = Field(default_factory=list)
+    guardrails: GuardrailSummary | None = None
