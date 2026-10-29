@@ -227,7 +227,7 @@ def test_enabled_entrypoints_share_investigation_and_initial_analysis(
                 }],
             })
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     root = tmp_path / "source"
     root.mkdir()
     (root / "main.py").write_text("def charge():\n    raise ValueError('payment failed')\n")

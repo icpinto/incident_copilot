@@ -68,7 +68,7 @@ def execution(tmp_path, monkeypatch):
     monkeypatch.setattr(investigation, "clean_revision", lambda _: revision)
     monkeypatch.setattr(evidence_tools, "clean_revision", lambda _: revision)
     model = InvestigationModel()
-    monkeypatch.setattr(investigation, "get_client", lambda _: model)
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: model)
     settings = Settings(_env_file=None, agentic_enabled=True, code_graph_enabled=False,
                         data_dir=tmp_path / "artifacts", index_db_path=index)
     runtime = InvestigationRuntime(root, index, "recoverable-execution")
@@ -174,7 +174,7 @@ async def test_cancel_during_model_retains_reservation_and_propagates(execution,
             entered.set()
             await asyncio.Event().wait()
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: SlowModel())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: SlowModel())
     task = asyncio.create_task(run_diagnosis_graph(payload, settings, runtime))
     await asyncio.wait_for(entered.wait(), timeout=5)
     task.cancel()
@@ -183,7 +183,7 @@ async def test_cancel_during_model_retains_reservation_and_propagates(execution,
     assert journal().budget()["model_calls"] == 1
     assert journal().get("final") is None
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: model)
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: model)
     report = await run_diagnosis_graph(payload, settings, runtime)
     assert report["investigation"]["model_calls"] == 3
     assert report["investigation"]["tool_calls"] == 1

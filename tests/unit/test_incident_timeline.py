@@ -273,8 +273,8 @@ async def test_both_reasoning_modes_and_checkpoint_resume_keep_scope(indexed, tm
                 return json.dumps({**OUTCOME, "action": "finish", "hypotheses": [h], "requests": [], "unresolved_gaps": []})
             return json.dumps({**OUTCOME, "hypotheses": [h]})
 
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Model())
-    monkeypatch.setattr(investigation, "get_client", lambda *_: Model())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     settings = Settings(_env_file=None, data_dir=tmp_path / "data", index_db_path=index)
     single = await run_diagnosis_graph(payload, settings)
     runtime = InvestigationRuntime(root, index, "timeline-execution")

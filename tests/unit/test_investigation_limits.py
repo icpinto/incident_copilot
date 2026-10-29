@@ -67,7 +67,7 @@ async def test_tool_limit_is_distinct_from_round_limit(execution, monkeypatch):
             calls += 1
             return decision(kwargs["prompt"], [read(calls)])
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "tool_call_limit"
     assert result["investigation"]["tool_calls"] == 1
@@ -87,7 +87,7 @@ async def test_model_limit_is_enforced_before_another_completion(execution, monk
             calls += 1
             return decision(kwargs["prompt"], [read(1)])
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert calls == 1 and result["investigation"]["model_calls"] == 1
     assert result["investigation"]["stop_reason"] == "model_call_limit"
@@ -109,7 +109,7 @@ async def test_content_limit_rejects_excess_evidence_but_keeps_hypothesis(execut
             file_path="cache.py", line_start=1, line_end=1, content="x" * 3000, request_id=request_id,
         )])
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     monkeypatch.setattr(evidence_tools.EvidenceTools, "execute", retrieve)
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "evidence_limit"
@@ -126,7 +126,7 @@ async def test_source_change_during_completion_marks_report_incomplete(execution
             monkeypatch.setattr(evidence_tools, "clean_revision", lambda _: "b" * 40)
             return decision(kwargs["prompt"])
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "source_changed"
     assert result["investigation"]["incomplete"] is True
@@ -148,7 +148,7 @@ async def test_first_model_failure_uses_deterministic_fallback(execution, monkey
                 return json.dumps(answer)
             return "not-json"
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["engine"] == "deterministic"
     assert result["investigation"]["model_calls"] == 1

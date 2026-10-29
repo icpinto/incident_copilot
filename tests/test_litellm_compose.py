@@ -64,7 +64,8 @@ def test_default_stack_routes_both_processes_to_gateway_and_waits_for_health(com
             key.removeprefix("IC_").lower(): value
             for key, value in service["environment"].items() if key.startswith("IC_")
         })
-        client = get_client(config)
+        assert config.guardrails_mode == "observe"
+        client = get_client(config).raw
         assert config.llm_provider == "openai_compatible"
         assert client.base_url == "http://litellm:4000/v1"
         assert client.model == "incident-diagnosis"
@@ -88,6 +89,7 @@ def test_example_env_routes_both_processes_with_matching_gateway_credentials(com
     services = json.loads(result.stdout)["services"]
     for name in ("api", "worker"):
         environment = services[name]["environment"]
+        assert environment["IC_GUARDRAILS_MODE"] == "observe"
         assert environment["IC_LLM_PROVIDER"] == "openai_compatible"
         assert environment["IC_OPENAI_COMPATIBLE_BASE_URL"] == "http://litellm:4000/v1"
         assert environment["IC_OPENAI_COMPATIBLE_MODEL"] == "incident-diagnosis"

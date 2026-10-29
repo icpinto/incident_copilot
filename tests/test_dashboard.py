@@ -140,7 +140,7 @@ def test_concurrent_repositories_and_configuration_snapshots(service, tmp_path, 
     class Unavailable:
         async def complete(self, **kwargs):
             raise ConnectionError("unavailable")
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Unavailable())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Unavailable())
     one, two = tmp_path / "one", tmp_path / "two"
     one.mkdir(); two.mkdir()
     (one / "main.py").write_text("def charge():\n    raise ValueError('charge failed')\n")
@@ -288,7 +288,7 @@ def test_legacy_synchronous_diagnosis_uses_limits_and_fallback(client, tmp_path,
     class Unavailable:
         async def complete(self, **kwargs):
             raise ConnectionError("offline")
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Unavailable())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Unavailable())
     for index in range(9):
         (tmp_path / f"payment_{index}.py").write_text("def charge():\n    raise ValueError('payment')\n")
     client.put("/api/settings", json={"values": {"top_k_candidates": 7}})

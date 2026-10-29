@@ -4,10 +4,10 @@ Install the optional SDK with `pip install -e ".[guardrails]"`. The application
 Docker image includes NeMo Guardrails 0.24.1 and its packaged policy files.
 Single-pass diagnosis and iterative investigation share the same policy layer.
 
-In Configuration, choose **Guardrails mode: Observe** for new analyses. Alternatively,
-set `IC_GUARDRAILS_MODE=observe` and recreate the API and worker. Saved dashboard
-overrides take precedence over environment values. Existing incident settings
-revisions remain unchanged. The built-in and Compose default is `off`.
+Guardrails run in **Observe** mode by default for new analyses. Use Configuration
+or `IC_GUARDRAILS_MODE` to select `off` or `enforce`. Recreate the API and worker
+after changing environment settings. Saved dashboard overrides take precedence
+over environment values. Existing incident settings revisions remain unchanged.
 
 Modes:
 

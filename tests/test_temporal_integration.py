@@ -25,7 +25,7 @@ def test_real_temporal_recovery_queries_validation_and_exports(tmp_path, monkeyp
         async def complete(self, **kwargs):
             await asyncio.sleep(.2)
             raise ConnectionError("offline")
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: NoModel())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: NoModel())
 
     async def scenario():
         download_dir = tmp_path / "temporal"

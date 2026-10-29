@@ -79,7 +79,7 @@ async def test_call_discovery_read_source_and_revise_hypothesis(case, monkeypatc
             source = next(e for e in prompts[-1]["evidence"] if e["kind"] == "source")
             assert 'raise ValueError("bad path")' in source["content"]
             return response(kwargs["prompt"], refs=[source["id"]], title="_path rejects the supplied path")
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     monkeypatch.setattr(investigation.EvidenceTools, "execute", tools)
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert calls == ["get_related_calls", "read_source"]
@@ -99,7 +99,7 @@ async def test_repeated_requests_stop_without_another_tool_call(case, monkeypatc
     class Model:
         async def complete(self, **kwargs):
             return response(kwargs["prompt"], [{"tool": "read_source", "question": "Read get", "file_path": "cache.py"}])
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "repeated_requests"
     assert result["investigation"]["model_calls"] == 2
@@ -122,7 +122,7 @@ async def test_later_model_failure_retains_last_valid_assessment(case, monkeypat
             if failure == "unknown_citation":
                 return response(kwargs["prompt"], refs=["invented-id"])
             return "malformed"
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["engine"] == "deterministic+llm"
     assert result["hypotheses"][0]["title"] == "Cache path handling"
@@ -188,7 +188,7 @@ async def test_validation_details_stream_export_and_survive_resume(case, monkeyp
                 return "private-response-sentinel" * 4096
             return json.dumps(data)
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     diagnostic = result["validation_errors"][0]
     assert diagnostic["stage"] == "investigation_assessment"
@@ -215,7 +215,7 @@ async def test_evidence_validation_errors_are_visible_and_preserve_assessment(ca
         return [EvidenceItem.model_validate({"id": "source", "kind": "source",
             "repository": "repo", "revision": "a" * 40, "line_start": "private-sentinel"})]
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     monkeypatch.setattr(investigation.EvidenceTools, "_read_source", invalid_source)
     result = await run_diagnosis_graph(payload, settings, runtime)
     diagnostic = result["validation_errors"][0]
@@ -241,7 +241,7 @@ async def test_empty_localization_can_search_index(case, monkeypatch):
                 return response(kwargs["prompt"], [{"tool": "search_source", "question": "Where does the error originate?", "query": "bad path"}])
             match = next(e for e in json.loads(kwargs["prompt"])["evidence"] if e["kind"] == "search_match")
             return response(kwargs["prompt"], refs=[match["id"]])
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["engine"] == "deterministic+llm" and calls == 2
     assert result["candidates"] == []
@@ -253,7 +253,7 @@ async def test_no_new_evidence_stops(case, monkeypatch):
     class Model:
         async def complete(self, **kwargs):
             return response(kwargs["prompt"], [{"tool": "search_source", "question": "Find error", "query": "absent-string"}])
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "no_new_evidence"
     assert result["investigation"]["model_calls"] == 1
@@ -269,7 +269,7 @@ async def test_round_limit_and_tool_limit(case, monkeypatch):
             nonlocal count
             count += 1
             return response(kwargs["prompt"], [{"tool": "read_source", "question": "Read source", "file_path": "cache.py", "line_start": count}])
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "round_limit"
     assert result["investigation"]["tool_calls"] == 1
@@ -315,7 +315,7 @@ async def test_saved_assessment_survives_crash_and_expired_deadline(case, monkey
         if key.startswith("assessment:"):
             raise WorkerCrash()
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     monkeypatch.setattr(investigation.InvestigationStore, "put", crash_after_saving)
     with pytest.raises(WorkerCrash):
         await run_diagnosis_graph(payload, settings, runtime)
@@ -353,7 +353,7 @@ async def test_retrieval_without_hypotheses_and_explicit_abstention(case, monkey
                 data["hypotheses"] = []
             return json.dumps(data)
 
-    monkeypatch.setattr(investigation, "get_client", lambda _: Model())
+    monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert calls == 2 and result["investigation"]["tool_calls"] == 1
     assert result["engine"] == "deterministic+llm" and result["fallback_reason"] is None

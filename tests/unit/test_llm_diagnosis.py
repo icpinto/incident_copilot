@@ -97,7 +97,7 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
         ),
     )
     config = Settings(
-        _env_file=None, agentic_enabled=False,
+        _env_file=None, agentic_enabled=False, guardrails_mode="off",
         llm_provider="ollama" if provider == "ollama" else "openai_compatible",
         ollama_base_url="http://model.test", ollama_model="test-model",
         openai_compatible_base_url="http://litellm:4000/v1/" if provider == "litellm_gateway" else "http://model.test/v1",
@@ -145,7 +145,7 @@ async def test_invalid_output_falls_back_and_records_safe_reason(monkeypatch, ca
         async def complete(self, **kwargs):
             return output
 
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Model())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Model())
     with caplog.at_level(logging.WARNING):
         report = build_report(await run_diagnosis_graph(state()))
     assert report.engine == "deterministic"
@@ -170,7 +170,7 @@ async def test_request_failure_does_not_expose_error_details(monkeypatch, caplog
         async def complete(self, **kwargs):
             raise ConnectionError("private-key-sentinel")
 
-    def client(*_):
+    def client(*_, **_kwargs):
         if failure_at == "client_creation":
             raise ValueError("private-key-sentinel")
         return Model()
@@ -186,7 +186,7 @@ async def test_request_failure_does_not_expose_error_details(monkeypatch, caplog
 
 @pytest.mark.asyncio
 async def test_no_candidates_skips_model(monkeypatch):
-    def unexpected_client(*_):
+    def unexpected_client(*_, **_kwargs):
         pytest.fail("LLM should not run without candidates")
 
     monkeypatch.setattr(build_hypotheses, "get_client", unexpected_client)
@@ -207,7 +207,7 @@ async def test_exact_stack_path_is_localization_only(monkeypatch):
     score, reasons = score_file(FileRecord(file_path="services/api/main.py"), parsed)
     assert score == 32
 
-    def offline(*_):
+    def offline(*_, **_kwargs):
         raise ConnectionError()
 
     monkeypatch.setattr(build_hypotheses, "get_client", offline)
@@ -231,7 +231,7 @@ async def test_explicit_abstention_preserves_optional_leads(monkeypatch, tentati
                                "next_checks": ["Capture runtime input"],
                                "hypotheses": [hypothesis()] if tentative_leads else []})
 
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Model())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Model())
     report = build_report(await run_diagnosis_graph(state()))
     assert report.engine == "deterministic+llm" and report.fallback_reason is None
     assert report.diagnosis_status == "insufficient_evidence"
@@ -246,7 +246,7 @@ async def test_cancellation_is_not_converted_to_fallback(monkeypatch):
         async def complete(self, **kwargs):
             raise asyncio.CancelledError()
 
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Model())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Model())
     with pytest.raises(asyncio.CancelledError):
         await build_hypotheses.build_hypotheses_node(state())
 
@@ -272,7 +272,7 @@ async def test_endpoint_failure_falls_back_safely(monkeypatch, caplog, provider,
         if provider == "ollama"
         else OpenAICompatibleClient("http://model.test/v1", "test-key", "test-model")
     )
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: client)
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: client)
     with caplog.at_level(logging.WARNING):
         report = build_report(await run_diagnosis_graph(state()))
     assert report.fallback_reason == "llm_request_failed"

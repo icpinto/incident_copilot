@@ -47,7 +47,7 @@ def pipeline(tmp_path, monkeypatch):
             raise ConnectionError('model unavailable')
     monkeypatch.setattr(activities, 'retrieve_graph_context', retrieve)
     monkeypatch.setattr(temporal_activities, 'retrieve_graph_context', retrieve)
-    monkeypatch.setattr(build_hypotheses, 'get_client', lambda *_: OfflineModel())
+    monkeypatch.setattr(build_hypotheses, 'get_client', lambda *_, **_kwargs: OfflineModel())
     logs = 'File "/app/main.py", line 2, in charge\nTimeoutError: gateway'
     return service, root, logs, context, calls, prompts, retrieve
 

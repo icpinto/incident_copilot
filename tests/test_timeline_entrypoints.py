@@ -39,7 +39,7 @@ def test_timeline_survives_delivery_and_retries(tmp_path, monkeypatch, entrypoin
             assert "unrelated-sentinel" not in kwargs["prompt"]
             raise ConnectionError("offline")
 
-    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_: Offline())
+    monkeypatch.setattr(build_hypotheses, "get_client", lambda *_, **_kwargs: Offline())
 
     async def execute():
         if entrypoint == "api":
