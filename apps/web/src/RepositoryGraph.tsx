@@ -21,7 +21,7 @@ const messages: Record<string, string> = {
 
 export function RepositoryGraph({ repo }: { repo: Repository }) {
   const client = useQueryClient();
-  const key = ['repository-graph', repo.id, repo.repo_root];
+  const key = ['repository-graph', repo.id, repo.repo_root, repo.synced_revision];
   const query = useQuery({ queryKey: key, queryFn: () => api<GraphPreparation>(`/repositories/${repo.id}/graph`),
     refetchInterval: q => ['queued', 'preparing'].includes(q.state.data?.status || '') ? 2000 : 10000 });
   const refresh = useMutation({ mutationFn: () => api<GraphPreparation>(`/repositories/${repo.id}/graph/refresh`, json('POST')),

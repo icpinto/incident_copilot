@@ -15,7 +15,7 @@ from .store import ControlStore
 SECRET = "openai_compatible_api_key"
 SECRETS = {SECRET, "gitnexus_auth_token"}
 INFRASTRUCTURE = {
-    "app_name", "env", "data_dir", "index_db_path", "temporal_host", "temporal_namespace",
+    "app_name", "env", "data_dir", "index_db_path", "repository_cache_dir", "temporal_host", "temporal_namespace",
     "temporal_task_queue", "temporal_connect_max_attempts", "temporal_connect_retry_delay_seconds",
 }
 
@@ -73,6 +73,8 @@ class Configuration:
             values.pop(key, None)
         # An empty secret field means keep the stored credential; reset explicitly clears overrides.
         values.update({key: value for key, value in update.values.items() if key not in SECRETS or value})
+        if "repository_cache_dir" in values and not values["repository_cache_dir"]:
+            values.pop("repository_cache_dir")
         try:
             validated = Settings(**values)
         except ValidationError:
@@ -98,6 +100,7 @@ class Configuration:
     def redact(self, payload):
         """Remove configured credentials from all public payloads, including stored errors."""
         secrets = {getattr(self.desired(), key) for key in SECRETS}
+        secrets.update(self.store.repository_secrets())
         # Large log snapshots share the JSON table but contain no configuration secrets.
         secrets.update(row.get(key, "") for row in self.store.list(
             "revisions", exclude_id_prefix="incident-context-",

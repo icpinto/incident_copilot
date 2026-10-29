@@ -18,10 +18,10 @@ async function atomicJson(path, value) {
 }
 
 export class GraphManager {
-  constructor({ state = '/state', mount = '/repositories', tokenFile = '/run/codegraph-auth/token',
+  constructor({ state = '/state', mount = '/repositories', cacheMount = process.env.IC_REPOSITORY_CACHE_DIR, tokenFile = '/run/codegraph-auth/token',
     token = process.env.GITNEXUS_MCP_AUTH_TOKEN, port = 3111, childPort = 3112,
     prepareTimeout = 300000, run = execute, spawnProcess = spawn } = {}) {
-    Object.assign(this, { state, mount, tokenFile, token, port, childPort, prepareTimeout, run, spawnProcess });
+    Object.assign(this, { state, mount, cacheMount, tokenFile, token, port, childPort, prepareTimeout, run, spawnProcess });
     this.entries = new Map();
     this.jobs = new Map();
     this.queue = [];
@@ -33,6 +33,8 @@ export class GraphManager {
 
   async init() {
     this.mount = await realpath(this.mount);
+    this.mounts = [this.mount];
+    if (this.cacheMount) this.mounts.push(await realpath(this.cacheMount));
     await mkdir(join(this.state, 'repositories'), { recursive: true });
     await mkdir(join(this.state, 'home'), { recursive: true });
     await mkdir(resolve(this.tokenFile, '..'), { recursive: true });
@@ -61,8 +63,10 @@ export class GraphManager {
     if (typeof value !== 'string' || !isAbsolute(value) || value.length > 4096 || /[,\r\n\0]/.test(value)) throw new GraphError('invalid_repository');
     let root;
     try { root = await realpath(value); } catch { throw new GraphError('repository_unavailable'); }
-    const path = relative(this.mount, root);
-    if (path === '..' || path.startsWith('..' + sep) || isAbsolute(path)) throw new GraphError('repository_outside_mount');
+    if (!(this.mounts || [this.mount]).some(mount => {
+      const path = relative(mount, root);
+      return path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path);
+    })) throw new GraphError('repository_outside_mount');
     return root;
   }
 

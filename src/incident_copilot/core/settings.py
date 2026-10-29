@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     env: str = "dev"
     data_dir: Path = Path("./data")
     index_db_path: Path = Path("./data/indexes/repo_index.db")
+    repository_cache_dir: Path | None = None
 
     temporal_host: str = "temporal:7233"
     temporal_namespace: str = "default"
@@ -58,6 +59,7 @@ class Settings(BaseSettings):
         project_root = Path(__file__).resolve().parents[3]
         self.data_dir = self._normalize_path(self.data_dir, project_root)
         self.index_db_path = self._normalize_path(self.index_db_path, project_root)
+        self.repository_cache_dir = self._normalize_path(self.repository_cache_dir, project_root) if self.repository_cache_dir else self.data_dir / "repository-cache"
 
     @staticmethod
     def _normalize_path(path_value: Path, project_root: Path) -> Path:

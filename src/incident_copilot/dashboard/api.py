@@ -23,14 +23,16 @@ from .models import (
     IncidentRecord,
     IncidentSubmission,
     Overview,
-    RepositoryInput,
     RepositoryProfile,
+    RepositorySync,
     RepositoryValidation,
+    RepositoryWrite,
     SettingsUpdate,
     SettingsView,
 )
+from .repository_source import repository_root
 from .service import DashboardService
-from .store import ControlStore, utcnow
+from .store import ControlStore
 
 
 async def reconciliation_loop(service: DashboardService):
@@ -74,33 +76,58 @@ def found(service: DashboardService, table: str, key: str) -> dict:
 
 @router.get("/repositories", response_model=list[RepositoryProfile])
 def repositories(include_archived: bool = False, service: DashboardService = Depends(get_service)):
-    return [r for r in service.store.list("repositories") if include_archived or not r["archived"]]
+    return [service.public_repository(r) for r in service.store.list("repositories") if include_archived or not r["archived"]]
 
 
 @router.post("/repositories", response_model=RepositoryProfile, status_code=201)
-def create_repository(profile: RepositoryInput, service: DashboardService = Depends(get_service)):
-    result = profile.model_dump() | {"id": str(uuid4()), "archived": False, "created_at": utcnow(), "validation": None, "index_summary": None}
-    service.store.put("repositories", result["id"], result)
-    return result
+def create_repository(profile: RepositoryWrite, service: DashboardService = Depends(get_service)):
+    return service.public_repository(service.store.save_repository(str(uuid4()), profile.model_dump(exclude={"github_token", "clear_github_token"}),
+        token=profile.github_token.get_secret_value() if profile.github_token else "", clear_token=profile.clear_github_token))
 
 
 @router.put("/repositories/{repository_id}", response_model=RepositoryProfile)
-def update_repository(repository_id: str, profile: RepositoryInput, service: DashboardService = Depends(get_service)):
+def update_repository(repository_id: str, profile: RepositoryWrite, service: DashboardService = Depends(get_service)):
     found(service, "repositories", repository_id)
-    return service.store.update("repositories", repository_id, profile.model_dump() | {"validation": None, "index_summary": None})
+    return service.public_repository(service.store.save_repository(repository_id, profile.model_dump(exclude={"github_token", "clear_github_token"}),
+        token=profile.github_token.get_secret_value() if profile.github_token else "", clear_token=profile.clear_github_token))
+
+
+def github_profile(repository_id: str, service: DashboardService) -> dict:
+    profile = found(service, "repositories", repository_id)
+    if profile.get("archived") or profile.get("source_type", "local") != "github":
+        raise HTTPException(422, "Select an active GitHub repository to sync.")
+    return profile
+
+
+@router.post("/repositories/{repository_id}/sync", response_model=RepositorySync, status_code=202)
+def sync_repository(repository_id: str, service: DashboardService = Depends(get_service)):
+    github_profile(repository_id, service)
+    try:
+        return service.public_sync(service.request_sync(repository_id))
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+
+@router.get("/repositories/{repository_id}/sync", response_model=RepositorySync)
+def sync_status(repository_id: str, service: DashboardService = Depends(get_service)):
+    github_profile(repository_id, service)
+    return service.sync_status(repository_id)
 
 
 @router.post("/repositories/{repository_id}/archive", response_model=RepositoryProfile)
 def archive_repository(repository_id: str, service: DashboardService = Depends(get_service)):
     found(service, "repositories", repository_id)
-    return service.store.update("repositories", repository_id, {"archived": True})
+    return service.public_repository(service.store.update("repositories", repository_id, {"archived": True}))
 
 
 @router.post("/repositories/{repository_id}/validate", response_model=RepositoryValidation)
 async def validate_repository(repository_id: str, service: DashboardService = Depends(get_service)):
     profile = found(service, "repositories", repository_id)
+    root = repository_root(profile)
+    if not root:
+        return RepositoryValidation(valid=False, message="Check & sync this GitHub repository first.")
     try:
-        result = await service.gateway.validate({"repo_root": profile["repo_root"], "compose_path": profile.get("compose_path")})
+        result = await service.gateway.validate({"repo_root": root, "compose_path": profile.get("compose_path")})
     except Exception:
         raise HTTPException(503, "Worker validation is unavailable. Check Temporal and the worker connection.") from None
     service.store.update("repositories", repository_id, {"validation": result})
@@ -118,7 +145,11 @@ def submit_incident(submission: IncidentSubmission, service: DashboardService = 
 @router.get("/repositories/{repository_id}/graph", response_model=GraphPreparation)
 async def graph_status(repository_id: str, service: Annotated[DashboardService, Depends(get_service)]):
     profile = found(service, "repositories", repository_id)
-    return await repository_graph_status(profile["repo_root"], service.configuration.effective())
+    root = repository_root(profile)
+    if not root:
+        return GraphPreparation(repository="", status="not_prepared", reason="repository_unavailable")
+    result = await repository_graph_status(root, service.configuration.effective())
+    return result.model_copy(update={"repository": profile["remote_url"]}) if profile.get("source_type") == "github" else result
 
 
 @router.post("/repositories/{repository_id}/graph/refresh", response_model=GraphPreparation, status_code=202)
@@ -126,7 +157,11 @@ async def refresh_graph(repository_id: str, service: Annotated[DashboardService,
     profile = found(service, "repositories", repository_id)
     if profile.get("archived"):
         raise HTTPException(422, "Archived repositories cannot be prepared.")
-    return await repository_graph_status(profile["repo_root"], service.configuration.effective(), refresh=True)
+    root = repository_root(profile)
+    if not root:
+        raise HTTPException(422, "Check & sync this GitHub repository first.")
+    result = await repository_graph_status(root, service.configuration.effective(), refresh=True)
+    return result.model_copy(update={"repository": profile["remote_url"]}) if profile.get("source_type") == "github" else result
 
 
 @router.get("/incidents", response_model=IncidentPage)

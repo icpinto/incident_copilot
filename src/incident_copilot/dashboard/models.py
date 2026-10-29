@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from incident_copilot.schemas.candidates import CandidateLocation
 from incident_copilot.schemas.code_graph import GraphContext, GraphPreparation
@@ -20,8 +20,30 @@ from incident_copilot.schemas.validation import AnalysisValidationError
 
 class RepositoryInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    repo_root: str = Field(min_length=1, max_length=4096)
+    source_type: Literal["local", "github"] = "local"
+    repo_root: str | None = Field(default=None, max_length=4096)
+    remote_url: str | None = None
+    branch: str | None = None
     compose_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        from .repository_source import normalize_remote, validate_branch, validate_compose_path
+        if self.source_type == "local":
+            if not self.repo_root or not self.repo_root.strip():
+                raise ValueError("Local repositories require a worker directory path.")
+            self.remote_url = self.branch = None
+        else:
+            self.remote_url = normalize_remote(self.remote_url or "")
+            validate_branch(self.branch or "")
+            validate_compose_path(self.compose_path)
+            self.repo_root = None
+        return self
+
+
+class RepositoryWrite(RepositoryInput):
+    github_token: SecretStr | None = None
+    clear_github_token: bool = False
 
 
 class RepositoryValidation(BaseModel):
@@ -36,6 +58,25 @@ class RepositoryProfile(RepositoryInput):
     created_at: str
     validation: RepositoryValidation | None = None
     index_summary: dict[str, Any] | None = None
+    token_configured: bool = False
+    synced_revision: str | None = None
+    last_synced_at: str | None = None
+    last_checked_at: str | None = None
+
+
+class RepositorySync(BaseModel):
+    id: str | None = None
+    repository_id: str
+    status: Literal["idle", "queued", "running", "completed", "failed"] = "idle"
+    stage: str = "idle"
+    result: Literal["updated", "unchanged"] | None = None
+    revision: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+    error: str | None = None
+    connection_error: str | None = None
+    graph_preparation: GraphPreparation | None = None
 
 
 class IncidentSubmission(BaseModel):
@@ -72,6 +113,7 @@ class IncidentRecord(BaseModel):
     title: str
     repository_id: str
     repository_name: str
+    repository_source: dict[str, str] | None = None
     status: Literal["queued", "running", "completed", "failed", "canceled"]
     created_at: str
     updated_at: str

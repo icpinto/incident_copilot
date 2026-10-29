@@ -18,6 +18,7 @@ with workflow.unsafe.imports_passed_through() if hasattr(workflow, "unsafe") els
         dashboard_stage_activity,
         validate_repository_activity,
     )
+    from incident_copilot.dashboard.repository_sync import sync_repository_activity
     from incident_copilot.schemas.incident import IncidentInput
     from incident_copilot.workflows.temporal_activities import (
         build_service_map_and_index_activity,
@@ -25,6 +26,17 @@ with workflow.unsafe.imports_passed_through() if hasattr(workflow, "unsafe") els
         deep_analysis_activity,
         diagnosis_graph_activity,
     )
+
+
+@workflow.defn
+class SyncRepositoryWorkflow:
+    @workflow.run
+    async def run(self, job_id: str) -> None:
+        from temporalio.common import RetryPolicy
+        await workflow.execute_activity(
+            sync_repository_activity, job_id, start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(seconds=20), retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
 
 @workflow.defn

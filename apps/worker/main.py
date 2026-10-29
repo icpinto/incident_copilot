@@ -9,16 +9,24 @@ if __package__ is None or __package__ == "":  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 from incident_copilot.core.logging import configure_logging
+from incident_copilot.dashboard.activities import (
+    dashboard_stage_activity,
+    validate_repository_activity,
+)
 from incident_copilot.dashboard.config import Configuration, control_path, fingerprint
+from incident_copilot.dashboard.repository_sync import sync_repository_activity
 from incident_copilot.dashboard.store import ControlStore, utcnow
-from incident_copilot.dashboard.activities import dashboard_stage_activity, validate_repository_activity
 from incident_copilot.workflows.temporal_activities import (
     build_service_map_and_index_activity,
     correlate_logs_activity,
     deep_analysis_activity,
     diagnosis_graph_activity,
 )
-from incident_copilot.workflows.temporal_workflows import DiagnoseIncidentWorkflow, ValidateRepositoryWorkflow
+from incident_copilot.workflows.temporal_workflows import (
+    DiagnoseIncidentWorkflow,
+    SyncRepositoryWorkflow,
+    ValidateRepositoryWorkflow,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -55,7 +63,7 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.temporal_task_queue,
-        workflows=[DiagnoseIncidentWorkflow, ValidateRepositoryWorkflow],
+        workflows=[DiagnoseIncidentWorkflow, ValidateRepositoryWorkflow, SyncRepositoryWorkflow],
         activities=[
             build_service_map_and_index_activity,
             correlate_logs_activity,
@@ -63,6 +71,7 @@ async def main() -> None:
             diagnosis_graph_activity,
             dashboard_stage_activity,
             validate_repository_activity,
+            sync_repository_activity,
         ],
     )
     from uuid import uuid4

@@ -5,7 +5,7 @@ A diagnosis-first incident copilot for containerized monorepos.
 This version intentionally **does not patch code**. It does:
 
 1. Ingest user-provided error logs
-2. Parse a local monorepo and docker-compose metadata
+2. Parse a local or manually synced GitHub monorepo and docker-compose metadata
 3. Correlate logs to likely services/files/functions
 4. Run optional deeper AST analysis on top candidates
 5. Use a bounded LangGraph reasoning step to produce a ranked diagnosis report
@@ -68,7 +68,9 @@ docker compose -f docker-compose.dev.yml up --build -d
 Open **http://localhost:8080**. The React app is built into the API image. Temporal UI
 is available at http://localhost:8233.
 
-1. Open **Repositories**, add a profile, and validate worker access.
+1. Open **Repositories** and add a **Local directory** or **GitHub** profile. Validate
+   local worker access, or click **Check & sync** for GitHub. Private repositories
+   support read-only tokens. See [repository sources and manual sync](docs/repositories.md).
 2. The project directory is mounted read-only at `/repositories` by default. Use
    `/repositories` as the profile path and `docker-compose.dev.yml` as its Compose file
    to analyze this project. Set `IC_REPOSITORIES_DIR` before starting Compose to mount

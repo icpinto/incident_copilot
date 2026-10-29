@@ -41,6 +41,7 @@ class Hypothesis(BaseModel):
 
 class DiagnosisReport(BaseModel):
     incident_id: str
+    repository_source: dict[str, str] | None = None
     likely_service: str | None
     likely_error_class: str | None
     candidates: list[CandidateLocation]

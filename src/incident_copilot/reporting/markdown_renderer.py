@@ -13,6 +13,11 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         f"- Likely service: `{report.likely_service or 'unknown'}`",
         f"- Likely error class: `{report.likely_error_class or 'unknown'}`",
     ]
+    if report.repository_source:
+        source = report.repository_source
+        parts.extend([f"- Repository: `{source.get('remote_url', '')}`",
+                      f"- Branch: `{source.get('branch', '')}`",
+                      f"- Source commit: `{source.get('commit', '')}`"])
     parts.extend([f"- Diagnosis outcome: {report.diagnosis_status.replace('_', ' ').capitalize()}"])
     if report.diagnosis_reason:
         parts.append(f"- Reason: {report.diagnosis_reason}")

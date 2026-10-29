@@ -82,6 +82,18 @@ def test_main_stack_requires_nonempty_authentication_key(compose, variables):
     assert "LITELLM_MASTER_KEY" in result.stderr
 
 
+def test_repository_cache_is_shared_with_only_worker_write_access(compose):
+    result = compose(variables={"LITELLM_MASTER_KEY": "sk-compose-test-key"})
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    for name in ("worker", "api", "gitnexus"):
+        service = services[name]
+        assert service["environment"]["IC_REPOSITORY_CACHE_DIR"] == "/repository-cache"
+        cache = next(volume for volume in service["volumes"] if volume["target"] == "/repository-cache")
+        assert cache["source"] == "repository-cache"
+        assert cache.get("read_only", False) is (name != "worker")
+
+
 def test_example_env_routes_both_processes_with_matching_gateway_credentials(compose):
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     result = compose(env_text=example.replace("LITELLM_MASTER_KEY=", "LITELLM_MASTER_KEY=sk-example-key"))

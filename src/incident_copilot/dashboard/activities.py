@@ -80,9 +80,13 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
         validation = await asyncio.to_thread(validate_repository, str(root), str(compose) if compose else None)
         if not validation["valid"]:
             raise ValueError(validation["message"])
-        summary = await asyncio.to_thread(index_repository, root, compose, Path(run["index_db_path"]))
-        evidence["index_summary"] = summary.model_dump(mode="json")
-        if store.get("repositories", run["repository_id"]):
+        if inputs.get("repository_snapshot"):
+            from .repository_sync import incident_index
+            evidence["index_summary"] = await asyncio.to_thread(incident_index, inputs, Path(run["index_db_path"]))
+        else:
+            summary = await asyncio.to_thread(index_repository, root, compose, Path(run["index_db_path"]))
+            evidence["index_summary"] = summary.model_dump(mode="json")
+        if not inputs.get("repository_snapshot") and store.get("repositories", run["repository_id"]):
             store.update("repositories", run["repository_id"], {"index_summary": evidence["index_summary"], "validation": validation})
     elif stage == "correlating":
         candidates, parsed = await asyncio.to_thread(
@@ -144,6 +148,10 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors", "guardrails",
         ) if key in state})
         report = build_report(state).model_dump(mode="json")
+        report["repository_source"] = run.get("repository_source")
+        if run.get("repository_source"):
+            from .repository_source import public_snapshot_payload
+            report = public_snapshot_payload(report, str(root), run["repository_source"]["remote_url"])
         # Redact at persistence time as well as at the HTTP boundary.
         changes["report"] = Configuration(store, activate=False).redact(report)
         artifact_dir = Path(run["artifact_dir"])

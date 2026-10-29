@@ -65,12 +65,12 @@ test('first use, revision reuse, refresh, and multiple repositories remain isola
 test('deduplicates requests, serializes writers, and retries a failed preparation', async t => {
   const { manager, repo } = await fixture(t);
   const one = await repo('one'), two = await repo('two');
-  let active = 0, peak = 0, calls = 0;
+  let active = 0, peak = 0, calls = 0, failed = false;
   manager.analyze = async root => {
     calls++; peak = Math.max(peak, ++active);
     await delay(100);
     active--;
-    if (calls === 1) throw new Error('private provider text');
+    if (root === one.root && !failed) { failed = true; throw new Error('private provider text'); }
     await mkdir(manager.storage(root), { recursive: true });
   };
   await Promise.all([manager.ensure(one.root), manager.ensure(one.root), manager.ensure(two.root)]);
@@ -80,6 +80,23 @@ test('deduplicates requests, serializes writers, and retries a failed preparatio
   await manager.ensure(one.root);
   await until(() => !manager.busy && manager.jobs.get(one.root)?.status === 'ready');
   assert.equal(calls, 3);
+});
+
+test('permits managed cache worktrees alongside local sources and rejects escaping links', async t => {
+  const { base, manager, repo } = await fixture(t);
+  const local = await repo();
+  const cache = join(base, 'cache'); await mkdir(cache);
+  const cached = join(cache, 'snapshot');
+  await local.git('worktree', 'add', '--detach', cached, 'HEAD');
+  await assert.rejects(manager.canonical(cached), /repository_outside_mount/);
+  manager.cacheMount = cache;
+  await manager.init();
+  assert.equal(await manager.revision(await manager.canonical(cached)), await manager.revision(local.root));
+  await manager.ensure(cached);
+  await until(() => !manager.busy && manager.entries.size === 1);
+  assert.equal((await manager.status(cached)).status, 'ready');
+  const escape = join(cache, 'escape'); await symlink(base, escape, 'junction');
+  await assert.rejects(manager.canonical(escape), /repository_outside_mount/);
 });
 
 test('rejects dirty, missing, nested, escaping, and mismatched checkouts', async t => {
