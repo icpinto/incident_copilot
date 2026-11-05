@@ -8,9 +8,11 @@ import importlib.metadata
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -73,7 +75,6 @@ class GitClient:
             GIT_CONFIG_GLOBAL=os.devnull,
             GIT_LFS_SKIP_SMUDGE="1",
             IC_GITHUB_TOKEN=self.token,
-            GIT_ASKPASS=f'"{Path(sys.executable).as_posix()}" "{helper.as_posix()}"',
         )
         command = [
             "git",
@@ -94,14 +95,30 @@ class GitClient:
         if cwd:
             command += ["-c", f"safe.directory={cwd.resolve().as_posix()}", "-C", str(cwd)]
         try:
-            result = subprocess.run(
-                command + list(args),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
+            # Git treats GIT_ASKPASS as an executable path, not a shell command.
+            # Use a launcher so the helper runs with this worker's Python even
+            # when installed files are not executable or paths contain spaces.
+            with tempfile.TemporaryDirectory(prefix="ic-git-askpass-") as temporary:
+                launcher = Path(temporary) / "askpass"
+                launcher.write_text(
+                    "#!/bin/sh\nexec "
+                    + shlex.quote(Path(sys.executable).as_posix())
+                    + " "
+                    + shlex.quote(helper.as_posix())
+                    + ' "$@"\n',
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                launcher.chmod(0o700)
+                env["GIT_ASKPASS"] = launcher.as_posix()
+                result = subprocess.run(
+                    command + list(args),
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
         except subprocess.TimeoutExpired:
             raise SyncFailure(
                 "GitHub operation timed out. Check connectivity and retry.", transient=True
@@ -110,6 +127,11 @@ class GitClient:
             raise SyncFailure("Git is unavailable on the worker. Install Git and retry.") from None
         if result.returncode:
             error = result.stderr.lower()
+            if any(word in error for word in ("cannot run", "unable to read askpass response")):
+                raise SyncFailure(
+                    "Git could not run the credential helper on the worker. "
+                    "Check the worker's Python installation and temporary directory permissions."
+                )
             if any(
                 word in error
                 for word in (

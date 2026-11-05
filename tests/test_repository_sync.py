@@ -355,6 +355,45 @@ def test_legacy_local_profile_and_local_sync_rejection(service, origin):
     )
 
 
+def test_git_invokes_credential_helper_with_real_git(tmp_path, monkeypatch):
+    # Exercise Git's actual askpass execution without contacting any remote.
+    temporary = tmp_path / "worker's temporary directory"
+    temporary.mkdir()
+    monkeypatch.setattr(repository_sync.tempfile, "tempdir", str(temporary))
+    original_run = subprocess.run
+    launchers = []
+    token = "private-test-token"
+
+    def execute(command, **kwargs):
+        launcher = Path(kwargs["env"]["GIT_ASKPASS"])
+        launchers.append(launcher)
+        assert token not in launcher.read_text()
+        assert token not in json.dumps(command)
+        return original_run(
+            command, input="protocol=https\nhost=example.invalid\n\n", **kwargs
+        )
+
+    monkeypatch.setattr(subprocess, "run", execute)
+    output = GitClient(token).run("credential", "fill")
+    assert "username=x-access-token" in output
+    assert f"password={token}" in output
+    assert launchers and all(not path.exists() for path in launchers)
+
+
+def test_git_helper_failure_is_not_reported_as_token_rejection(monkeypatch):
+    def execute(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 128, stdout="",
+            stderr="fatal: cannot run private-helper: No such file or directory\n"
+            "fatal: could not read Username: terminal prompts disabled",
+        )
+
+    monkeypatch.setattr(subprocess, "run", execute)
+    with pytest.raises(SyncFailure, match="credential helper on the worker") as error:
+        GitClient("private-test-token").run("ls-remote", "https://github.com/acme/repo.git")
+    assert "private-helper" not in str(error.value)
+
+
 def test_git_auth_is_environment_only_and_errors_are_sanitized(monkeypatch):
     captured = {}
 
