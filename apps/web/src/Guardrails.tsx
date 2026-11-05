@@ -7,7 +7,7 @@ export function Guardrails({ summary }: { summary?: GuardrailSummary | null }) {
   if (!summary) return null;
   const findings = summary.events.filter(event => event.status === 'flagged').length;
   const failures = summary.events.filter(event => event.status === 'error' || event.status === 'skipped').length;
-  return <section aria-label="Guardrails">
+  return <div>
     <Panel title="Guardrails" subtitle={summary.mode === 'observe'
       ? 'Observation mode records findings and check failures without blocking analysis.'
       : 'Enforcement stops a model step when content is rejected or a check is unavailable.'}>
@@ -26,5 +26,5 @@ export function Guardrails({ summary }: { summary?: GuardrailSummary | null }) {
         </li>)}</ul>
       </details>
     </Panel>
-  </section>;
+  </div>;
 }

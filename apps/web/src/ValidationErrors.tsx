@@ -4,8 +4,8 @@ import type { AnalysisValidationError } from './types';
 export function ValidationErrors({ errors = [] }: { errors?: AnalysisValidationError[] }) {
   if (!errors.length) return null;
   return <section role="alert" aria-label="Analysis validation errors">
-    <Panel title="Analysis validation errors" subtitle="Some analysis results failed validation. Review the details below.">
-      {errors.map((failure, index) => <div key={index}>
+    <Panel className="validation-panel" title="Analysis validation errors" subtitle="Some analysis results failed validation. Review the details below.">
+      {errors.map((failure, index) => <div className="validation-error" key={index}>
         <h3>{failure.stage.replaceAll('_', ' ')} · {failure.kind}
           {failure.model_call != null && ` · Model call ${failure.model_call}`}
         </h3>

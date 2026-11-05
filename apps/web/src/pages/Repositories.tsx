@@ -40,7 +40,7 @@ export function Repositories() {
     setToken(''); setClearToken(false); setTokenConfigured(!!repo?.token_configured);
     setCompose(repo?.compose_path || ''); save.reset();
   };
-  return <><PageHeading eyebrow="SOURCE CONNECTIONS" title="Repositories" description="Give every investigation the right source context." action={<button className="button primary" onClick={() => edit()}><Plus size={16} />Add repository</button>} />
+  return <><PageHeading eyebrow="SOURCE CONNECTIONS" title="Repositories" description="Manage source connections, sync status, and code graph readiness." action={<button className="button primary" onClick={() => edit()}><Plus size={16} />Add repository</button>} />
     <ErrorNotice error={query.error || save.error || archive.error || validate.error} />{message && <Notice>{message}</Notice>}
     {editing && <form className="panel repository-form" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
       <div className="inline-heading"><h2>{editing === 'new' ? 'Connect a repository' : 'Edit repository profile'}</h2><button type="button" className="icon-button" aria-label="Close repository form" onClick={() => { setEditing(null); setToken(''); }}><X size={18} /></button></div>

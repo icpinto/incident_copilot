@@ -1,29 +1,67 @@
-import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowRight, ArrowUpRight, CheckCheck, Clock3, FolderGit2, Plus, Radar, Zap } from 'lucide-react';
+﻿import { useQuery } from '@tanstack/react-query';
+import { Activity, ArrowRight, ArrowUpRight, CheckCheck, Clock3, FolderGit2, Plus, Zap } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { chartTheme, chartTooltip } from '../chartTheme';
 import { duration, Empty, ErrorNotice, IncidentTable, Loading, PageHeading, Panel } from '../components';
 import type { OverviewData, Repository } from '../types';
-
-const chartTooltip = { background: '#1c2028', border: '1px solid #343b45', borderRadius: 10, color: '#e9edf1', fontSize: '0.9375rem' };
-export { chartTooltip };
 
 export function Overview() {
   const query = useQuery({ queryKey: ['overview'], queryFn: () => api<OverviewData>('/overview'), refetchInterval: q => q.state.data?.active ? 2000 : false });
   const repos = useQuery({ queryKey: ['repositories'], queryFn: () => api<Repository[]>('/repositories') });
   const data = query.data;
-  return <><PageHeading eyebrow="YOUR OPERATIONS, IN FOCUS" title="Incident overview" description="Every signal. Every hypothesis. A clearer path to resolution." action={<Link className="button primary" to="/incidents/new"><Plus size={16} />New analysis</Link>} /><ErrorNotice error={query.error} />{query.isPending ? <Loading /> : data && <>
-    <div className="overview-ribbon"><div className="ribbon-icon"><Radar size={24} /></div><div><strong>{data.active ? `${data.active} investigation${data.active === 1 ? '' : 's'} in progress` : data.total ? 'Your investigation workspace is up to date' : 'Your next investigation starts here'}</strong><p>{data.total ? 'Durable runs, source evidence, and ranked diagnoses in one place.' : 'Connect a repository and submit error logs to get your first diagnosis.'}</p></div><Link to={repos.data?.length ? '/incidents/new' : '/repositories'}>{repos.data?.length ? 'Investigate' : 'Connect repository'}<ArrowRight size={16} /></Link></div>
-    <div className="metrics-grid">{[
-      { label: 'TOTAL INCIDENTS', value: data.total, note: 'Across all repositories', icon: Activity, color: 'lime' },
-      { label: 'COMPLETED ANALYSES', value: data.completed, note: data.total ? `${Math.round(data.completed / data.total * 100)}% of submitted incidents` : 'Ready for your first run', icon: CheckCheck, color: 'blue' },
-      { label: 'ACTIVE INVESTIGATIONS', value: data.active, note: `${data.failed} failed ${data.failed === 1 ? 'run' : 'runs'} in history`, icon: Zap, color: 'amber' },
-      { label: 'AVG. DIAGNOSIS TIME', value: data.completed ? duration(data.average_duration_seconds) : '—', note: 'Submission to completed report', icon: Clock3, color: 'purple' },
-    ].map(metric => <section className="metric" key={metric.label}><div className="metric-top"><span>{metric.label}</span><metric.icon size={17} className={metric.color} /></div><strong>{metric.value}</strong><small>{metric.note}</small></section>)}</div>
-    <div className="charts-grid"><Panel title="Incident activity" subtitle="Submitted incidents over the last 14 days" action={<span className="chart-legend"><i />Incident volume</span>}><div className="chart" role="img" aria-label={`Incident submissions over 14 days; ${data.total} total incidents`}><ResponsiveContainer width="100%" height="100%"><AreaChart data={data.activity} margin={{ top: 15, right: 20, left: -12, bottom: 0 }}><defs><linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#b4f272" stopOpacity={0.22} /><stop offset="100%" stopColor="#b4f272" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="#252a32" vertical={false} strokeDasharray="3 5" /><XAxis dataKey="date" tickFormatter={v => new Date(`${v}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} tick={{ fill: '#a1acbc', fontSize: '0.875rem' }} axisLine={false} tickLine={false} minTickGap={35} /><YAxis allowDecimals={false} tick={{ fill: '#7e8897', fontSize: '0.875rem' }} axisLine={false} tickLine={false} /><Tooltip contentStyle={chartTooltip} /><Area type="monotone" dataKey="incidents" name="Incidents" stroke="#b4f272" fill="url(#activity-fill)" strokeWidth={2.5} activeDot={{ r: 5, fill: '#b4f272', stroke: '#10140e', strokeWidth: 3 }} /></AreaChart></ResponsiveContainer></div><div className="chart-footnote"><span className="status-dot" />Live data from saved incident history</div></Panel>
-    <Panel title="Service distribution" subtitle="Likely service in completed diagnoses">{data.services.length ? <div className="chart" role="img" aria-label={data.services.map(s => `${s.name}: ${s.count}`).join(', ')}><ResponsiveContainer width="100%" height="100%"><BarChart data={data.services.slice(0, 6)} layout="vertical" margin={{ top: 15, right: 25, left: 0 }}><XAxis type="number" hide allowDecimals={false} /><YAxis type="category" dataKey="name" width={135} tick={{ fill: '#a5aebb', fontSize: '0.875rem' }} axisLine={false} tickLine={false} /><Tooltip contentStyle={chartTooltip} cursor={{ fill: '#1c222b' }} /><Bar dataKey="count" name="Incidents" fill="#8dacf7" radius={[0, 5, 5, 0]} barSize={15} /></BarChart></ResponsiveContainer></div> : <div className="chart-empty"><div className="empty-bars"><i /><i /><i /><i /></div><strong>No service data yet</strong><p>Completed diagnoses will populate this view.</p></div>}<div className="chart-footnote">{data.services.length} services identified · diagnosis results</div></Panel></div>
-    <Panel title="Recent investigations" subtitle="Your latest incidents and their current status" action={<Link className="text-link" to="/incidents">View all incidents<ArrowUpRight size={15} /></Link>}>{data.recent.length ? <IncidentTable rows={data.recent} /> : <Empty />}</Panel>
-    <div className="workflow-note"><span className="eyebrow">THE DIAGNOSIS PIPELINE</span><div><span>01 <strong>Index</strong></span><ArrowRight size={14} /><span>02 <strong>Correlate</strong></span><ArrowRight size={14} /><span>03 <strong>Analyze</strong></span><ArrowRight size={14} /><span>04 <strong>Diagnose</strong></span></div><span><FolderGit2 size={14} />{repos.data?.length || 0} connected repositories</span></div>
-  </>}</>;
+  return <>
+    <PageHeading eyebrow="WORKSPACE / OVERVIEW" title="Incident overview" description="Monitor investigations and follow the evidence." action={<Link className="button primary" to="/incidents/new"><Plus size={17} />New analysis</Link>} />
+    <ErrorNotice error={query.error} />
+    <ErrorNotice error={repos.error} />
+    {query.isPending ? <Loading /> : data && <>
+      <div className="overview-status">
+        <span><span className={`status-dot ${data.active ? 'lime' : ''}`} />{data.active ? `${data.active} investigation${data.active === 1 ? '' : 's'} in progress` : data.total ? 'No investigations in progress' : 'Ready for your first investigation'}</span>
+        {!data.total && <Link className="text-link" to={repos.data?.length ? '/incidents/new' : '/repositories'}>{repos.data?.length ? 'Start an analysis' : 'Connect a repository'}<ArrowRight size={14} /></Link>}
+        <span className="overview-scope">Saved incident history</span>
+      </div>
+      <div className="metrics-grid">{[
+        { label: 'Total incidents', value: data.total, note: 'Across all repositories', icon: Activity },
+        { label: 'Completed analyses', value: data.completed, note: data.total ? `${Math.round(data.completed / data.total * 100)}% of submitted incidents` : 'No completed analyses yet', icon: CheckCheck },
+        { label: 'Active investigations', value: data.active, note: `${data.failed} failed ${data.failed === 1 ? 'run' : 'runs'} in history`, icon: Zap },
+        { label: 'Avg. diagnosis time', value: data.completed ? duration(data.average_duration_seconds) : '—', note: 'Submission to completed report', icon: Clock3 },
+      ].map(metric => <section className="metric" key={metric.label} aria-label={metric.label}>
+        <div className="metric-top"><span>{metric.label}</span><span className="metric-icon"><metric.icon size={17} /></span></div>
+        <strong>{metric.value}</strong><small>{metric.note}</small>
+      </section>)}</div>
+      <div className="charts-grid">
+        <Panel title="Incident activity" subtitle="Submitted incidents over the last 14 days" action={<span className="chart-period">Last 14 days</span>}>
+          <div className="chart" role="img" aria-label={`Incident submissions over 14 days; ${data.total} total incidents`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data.activity} margin={{ top: 16, right: 24, left: -12, bottom: 0 }}>
+                <defs><linearGradient id="activity-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={chartTheme.accent} stopOpacity={0.18} /><stop offset="100%" stopColor={chartTheme.accent} stopOpacity={0} /></linearGradient></defs>
+                <CartesianGrid stroke={chartTheme.grid} vertical={false} strokeDasharray="3 5" />
+                <XAxis dataKey="date" tickFormatter={v => new Date(`${v}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} tick={chartTheme.tick} axisLine={false} tickLine={false} minTickGap={35} tickMargin={12} />
+                <YAxis allowDecimals={false} tick={chartTheme.tick} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={chartTooltip} />
+                <Area isAnimationActive={false} type="monotone" dataKey="incidents" name="Incidents" stroke={chartTheme.accent} fill="url(#activity-fill)" strokeWidth={2} activeDot={{ r: 4, fill: chartTheme.accent, stroke: 'var(--panel)', strokeWidth: 2 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-footnote"><span className="chart-legend"><i />Incident volume</span><span>Daily submissions</span></div>
+        </Panel>
+        <Panel title="Service distribution" subtitle="Likely service in completed diagnoses">
+          {data.services.length ? <div className="chart" role="img" aria-label={data.services.map(s => `${s.name}: ${s.count}`).join(', ')}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.services.slice(0, 6)} layout="vertical" margin={{ top: 16, right: 24, left: 0 }}>
+                <XAxis type="number" hide allowDecimals={false} /><YAxis type="category" dataKey="name" width={120} tick={chartTheme.tick} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={chartTooltip} cursor={chartTheme.cursor} /><Bar isAnimationActive={false} dataKey="count" name="Incidents" fill={chartTheme.secondary} radius={[0, 4, 4, 0]} barSize={12} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div> : <div className="chart-empty"><FolderGit2 size={25} strokeWidth={1.5} /><strong>No service data yet</strong><p>Completed diagnoses will appear here.</p></div>}
+          <div className="chart-footnote"><span>{data.services.length} services identified</span><span>Diagnosis results</span></div>
+        </Panel>
+      </div>
+      <Panel title="Recent investigations" subtitle="Latest incidents and their current status" action={<Link className="text-link" to="/incidents">View all incidents<ArrowUpRight size={15} /></Link>}>
+        {data.recent.length ? <IncidentTable rows={data.recent} /> : <Empty />}
+      </Panel>
+      <div className="workflow-note"><span>Index <ArrowRight size={12} />Correlate <ArrowRight size={12} />Analyze <ArrowRight size={12} />Diagnose</span><span><FolderGit2 size={14} />{repos.data ? `${repos.data.length} connected repositories` : 'Repository count unavailable'}</span></div>
+    </>}
+  </>;
 }
