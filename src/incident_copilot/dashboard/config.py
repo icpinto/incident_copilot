@@ -105,7 +105,10 @@ class Configuration:
         secrets.update(row.get(key, "") for row in self.store.list(
             "revisions", exclude_id_prefix="incident-context-",
         ) for key in SECRETS)
-        structural = {"id", "incident_id", "repository_id", "config_revision", "status", "stage", "engine", "created_at", "updated_at", "completed_at", "started_at"}
+        structural = {"id", "incident_id", "repository_id", "config_revision", "status", "stage", "engine", "created_at", "updated_at", "completed_at", "started_at",
+                      "issue_id", "batch_id", "error_batch_id", "event_id", "group_id", "error_tracking_status", "kind", "dimension",
+                      "effective_at", "timestamp", "timestamp_utc", "timestamp_source", "tracking_since", "first_seen", "last_seen", "resolved_at",
+                      "start_at", "end_at", "previous_start_at", "redirected_from", "source_issue_id", "target_issue_id"}
         def clean(value, key=""):
             if isinstance(value, dict):
                 return {name: clean(item, name) for name, item in value.items()}

@@ -336,20 +336,25 @@ async def test_ambiguous_related_method_does_not_hide_verified_calls(repository,
 
 @pytest.mark.asyncio
 async def test_managed_retrieval_prepares_only_a_verified_snapshot(repository, monkeypatch):
+    from types import SimpleNamespace
+
     root, storage, candidate, settings = repository
     settings.code_graph_mode = "managed"
     settings.gitnexus_repository = "/old/single/repository"
     calls = []
+    clock = [100.0]
+    # Replace only this module's clock, preserving asyncio's real scheduling clock.
+    monkeypatch.setattr(graph, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     async def ensure(selection, revision, config, progress):
         calls.append((selection, revision))
         # Preparation can exceed retrieval's deadline without consuming that budget.
-        await asyncio.sleep(.02)
+        clock[0] += config.code_graph_timeout_seconds + 1
         return GraphPreparation(repository=selection, status="ready")
     monkeypatch.setattr(graph, "ensure_graph_ready", ensure)
     install(monkeypatch, Provider(root, found(symbol("checkout", "checkout.py"))))
     context = await graph.retrieve_graph_context(root, storage.db_path, [candidate], settings)
     assert context["status"] == "available" and calls == [(str(root.resolve()), "a" * 40)]
-    assert context["retrieval_ms"] < 20
+    assert context["retrieval_ms"] == 0
     calls.clear()
     await graph.retrieve_graph_context(root, storage.db_path, [], settings)
     assert not calls

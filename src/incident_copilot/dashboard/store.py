@@ -38,12 +38,17 @@ class ControlStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS repository_active_sync
                     ON repository_syncs(repository_id) WHERE status IN ('queued','running');
             """)
+            from .issue_capture import SCHEMA
+            db.executescript(SCHEMA)
+            db.execute("INSERT OR IGNORE INTO configuration(key,payload) VALUES ('error_tracking',?)",
+                       (json.dumps({"schema_version": 1, "tracking_since": utcnow()}),))
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
         db = sqlite3.connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA busy_timeout=30000")
+        db.execute("PRAGMA foreign_keys=ON")
         try:
             with db:
                 yield db
@@ -190,12 +195,20 @@ class ControlStore:
             self._put(db, table, key, payload)
         return payload
 
-    def create_incident(self, record: dict, infrastructure: dict) -> None:
+    def create_incident(self, record: dict, infrastructure: dict, *, capture: dict | None = None,
+                        original_batch_id: str | None = None) -> None:
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT payload FROM configuration WHERE key='infrastructure'").fetchone()
             if row and json.loads(row[0]) != infrastructure:
                 raise ValueError("Infrastructure settings changed. Restart both the API and worker before submitting a new incident.")
+            self._put(db, "incidents", record["id"], record)
+            if capture is not None:
+                from .issue_capture import capture_upload
+                capture_upload(db, record, capture)
+            elif original_batch_id:
+                db.execute("INSERT INTO incident_error_batches VALUES (?,?)", (record["id"], original_batch_id))
+                record.update(error_batch_id=original_batch_id, error_tracking_status="duplicate")
             self._put(db, "incidents", record["id"], record)
 
     def config(self, key: str) -> dict:

@@ -101,6 +101,8 @@ class DashboardService:
     def __init__(self, store: ControlStore):
         self.store = store
         self.configuration = Configuration(store)
+        from .issues import IssueService
+        self.issues = IssueService(store, self.configuration)
         self.gateway = TemporalGateway(self.configuration)
         self.lock = asyncio.Lock()
 
@@ -176,7 +178,19 @@ class DashboardService:
             "evidence": {"raw_log": submission.log_text}, "error": None, "connection_error": None,
             "dispatched": False,
         }
-        self.store.create_incident(record, self.configuration.infrastructure)
+        capture = None
+        if original is None:
+            from .issue_capture import prepare_upload
+
+            def project(event):
+                event = self.configuration.redact(event)
+                if record.get("repository_source"):
+                    event = public_snapshot_payload(event, inputs["repo_root"], record["repository_source"]["remote_url"])
+                return event
+
+            capture = prepare_upload(submission.log_text, project)
+        self.store.create_incident(record, self.configuration.infrastructure, capture=capture,
+                                   original_batch_id=original.get("error_batch_id") if original else None)
         return self.public(record)
 
     async def cancel(self, incident_id: str) -> IncidentRecord:

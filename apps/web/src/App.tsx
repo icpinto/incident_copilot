@@ -7,6 +7,8 @@ import { Incidents, NewIncident, IncidentDetail } from './pages/Incidents';
 import { Repositories } from './pages/Repositories';
 import { Settings } from './pages/Settings';
 import { Empty } from './components';
+import { ErrorIntelligence } from './pages/ErrorIntelligence';
+import { Issues, IssueDetail } from './pages/Issues';
 
 export function App() {
   const location = useLocation();
@@ -24,7 +26,9 @@ export function App() {
     refetchInterval: 15000,
     retry: false,
   });
-  const section = location.pathname.startsWith('/repositories') ? 'Repositories'
+  const section = location.pathname.startsWith('/intelligence') ? 'Error intelligence'
+    : location.pathname.startsWith('/issues') ? 'Issues'
+    : location.pathname.startsWith('/repositories') ? 'Repositories'
     : location.pathname.startsWith('/settings') ? 'Configuration'
     : location.pathname.startsWith('/incidents') ? 'Incidents' : 'Overview';
   const detail = location.pathname === '/incidents/new' ? 'New analysis'
@@ -47,6 +51,8 @@ export function App() {
       <div className="nav-section-label">WORKSPACE</div>
       <nav aria-label="Main navigation">
         <NavLink to="/" end><LayoutDashboard size={18} />Overview</NavLink>
+        <NavLink to="/intelligence"><LayoutDashboard size={18} />Error intelligence</NavLink>
+        <NavLink to="/issues"><Search size={18} />Issues</NavLink>
         <NavLink to="/incidents"><Activity size={18} />Incidents</NavLink>
         <NavLink to="/repositories"><FolderGit2 size={18} />Repositories</NavLink>
         <NavLink to="/settings"><Settings2 size={18} />Configuration</NavLink>
@@ -74,6 +80,9 @@ export function App() {
       <main id="main" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/intelligence" element={<ErrorIntelligence />} />
+          <Route path="/issues" element={<Issues />} />
+          <Route path="/issues/:id" element={<IssueDetail />} />
           <Route path="/incidents" element={<Incidents />} />
           <Route path="/incidents/new" element={<NewIncident />} />
           <Route path="/incidents/:id" element={<IncidentDetail />} />

@@ -125,6 +125,8 @@ class IncidentRecord(BaseModel):
     evidence: IncidentEvidence = Field(default_factory=IncidentEvidence)
     error: str | None = None
     connection_error: str | None = None
+    error_batch_id: str | None = None
+    error_tracking_status: Literal["untracked", "tracked", "duplicate"] = "untracked"
 
 
 class IncidentPage(BaseModel):

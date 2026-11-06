@@ -18,7 +18,7 @@ export type IncidentGroup = { id: string; event_ids: string[]; services: string[
 export type IncidentContext = { version: 1; events: LogEvent[]; groups: IncidentGroup[]; primary_group_id: string | null; selection_reason: string | null; limitations: string[] };
 export type ParsedLog = { services: string[]; exception_types: string[]; error_lines: string[]; keywords: string[]; stack_frames: StackFrame[]; raw_text: string; incident_context?: IncidentContext | null };
 export type IndexSummary = { indexed_files: number; indexed_symbols: number; service_mappings: { service_name: string; image: string | null; build_context: string | null }[]; repo_root: string };
-export type Incident = { repository_source?: RepositorySource | null; id: string; title: string; repository_id: string; repository_name: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'; created_at: string; updated_at: string; completed_at: string | null; config_revision: string; stage: string; timeline: StageEvent[]; report: Report | null; evidence: InvestigationEvidence & { raw_log?: string; parsed_log?: ParsedLog; candidates?: Candidate[]; deep_analysis?: Record<string, unknown>; index_summary?: IndexSummary; graph_context?: GraphContext | null; graph_preparation?: GraphPreparation | null }; error: string | null; connection_error: string | null };
+export type Incident = { error_batch_id?: string | null; error_tracking_status?: 'untracked' | 'tracked' | 'duplicate'; repository_source?: RepositorySource | null; id: string; title: string; repository_id: string; repository_name: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'; created_at: string; updated_at: string; completed_at: string | null; config_revision: string; stage: string; timeline: StageEvent[]; report: Report | null; evidence: InvestigationEvidence & { raw_log?: string; parsed_log?: ParsedLog; candidates?: Candidate[]; deep_analysis?: Record<string, unknown>; index_summary?: IndexSummary; graph_context?: GraphContext | null; graph_preparation?: GraphPreparation | null }; error: string | null; connection_error: string | null };
 export type GraphPreparation = { repository: string; status: 'disabled' | 'external' | 'not_prepared' | 'queued' | 'preparing' | 'ready' | 'stale' | 'unavailable'; source_revision: string | null; indexed_revision: string | null; indexed_at: string | null; reason: string | null };
 export type IncidentPage = { items: Incident[]; total: number; page: number; page_size: number };
 export type Validation = { valid: boolean; message: string; services: { service_name: string; image: string | null; build_context: string | null }[] };
@@ -26,6 +26,34 @@ export type Repository = { source_type?: 'local' | 'github'; remote_url?: string
 export type OverviewData = { total: number; completed: number; failed: number; active: number; average_duration_seconds: number; activity: { date: string; incidents: number }[]; services: { name: string; count: number }[]; recent: Incident[] };
 export type SettingsData = { saved: Record<string, string | number | boolean>; active: Record<string, string | number | boolean>; overridden: string[]; restart_required: string[]; infrastructure_fields: string[]; control_db_path: string; secret_configured: boolean; graph_secret_configured?: boolean };
 export const isActive = (run: Incident) => run.status === 'running' || run.status === 'queued';
+
+export type IssueStatus = 'open' | 'acknowledged' | 'investigating' | 'resolved' | 'ignored';
+export type ErrorDimension = 'repository' | 'service' | 'error_class' | 'file' | 'function';
+export type Issue = {
+  id: string; repository_id: string; repository_name: string; title: string; owner: string;
+  status: IssueStatus; resolution_note: string; resolved_at: string | null; created_at: string; updated_at: string;
+  first_seen: string | null; last_seen: string | null; occurrence_count: number; previous_count: number;
+  total_count: number; change: number; change_percent: number | null; source_timestamp_count: number;
+  fallback_timestamp_count: number; redirected_from?: string | null; tracking_since?: string;
+};
+export type IssuePage = { items: Issue[]; total: number; page: number; page_size: number; start_at: string; end_at: string; tracking_since: string };
+export type ErrorOccurrence = {
+  id: string; issue_id: string; batch_id: string; event_id: string; effective_at: string;
+  timestamp_source: 'event' | 'submission'; event: LogEvent & { group_id?: string | null };
+  investigations: { id: string; title: string }[];
+};
+export type OccurrencePage = { items: ErrorOccurrence[]; total: number; page: number; page_size: number };
+export type IssueActivity = { id: string; issue_id: string; kind: string; created_at: string; effective_at: string; details: Record<string, unknown> };
+export type ActivityPage = { items: IssueActivity[]; total: number; page: number; page_size: number };
+export type ErrorIntelligenceData = {
+  tracking_since: string; start_at: string; end_at: string; previous_start_at: string; dimension: ErrorDimension;
+  summary: { occurrences: number; previous_occurrences: number; change: number; change_percent: number | null;
+    issues: number; active_issues: number; new_issues: number; reopened_issues: number;
+    source_timestamp_count: number; fallback_timestamp_count: number };
+  trends: { date: string; occurrences: number }[];
+  hotspots: { value: string; label: string; occurrences: number }[];
+  frequent_issues: Issue[]; growing_issues: Issue[];
+};
 
 export type RepositorySource = { source_type: string; remote_url: string; branch: string; commit: string };
 export type RepositorySync = { id: string | null; repository_id: string; status: 'idle' | 'queued' | 'running' | 'completed' | 'failed'; stage: string; result?: 'updated' | 'unchanged' | null; revision?: string | null; completed_at?: string | null; error?: string | null; connection_error?: string | null; graph_preparation?: GraphPreparation | null };

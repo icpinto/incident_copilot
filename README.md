@@ -87,6 +87,12 @@ Prepare/Refresh actions; no additional Docker commands or token setup are requir
 The dashboard starts empty and calculates all metrics from saved incidents. LLM
 failures fall back to deterministic diagnosis, with the actual engine shown in the report.
 
+**Error intelligence** and **Issues** track recurring error occurrences from new
+dashboard uploads, independently of diagnosis completion. Explore hotspots and
+trends, assign owners, resolve issues, and correct grouping with merge/split actions.
+Exact duplicate uploads and reruns share occurrences; saved history is not backfilled.
+See [uploaded error intelligence, counting, and triage](docs/error-intelligence.md).
+
 ### Run the dashboard on the host
 
 Install Python dependencies as described below, and use Node.js **22.12 or newer**:

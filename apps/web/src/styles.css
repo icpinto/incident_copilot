@@ -366,6 +366,57 @@ textarea { resize: vertical; }
 .graph-advanced { padding: 20px 24px 0; border-top: 1px solid var(--border); }
 .graph-advanced .settings-fields { padding: 16px 0 24px; }
 
+/* Uploaded error intelligence and persistent issue triage. */
+.issue-filters { margin-bottom: 24px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.issue-filter-primary, .issue-filter-secondary { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); align-items: end; gap: 16px; }
+.issue-filters label, .issue-triage label, .issue-split label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: var(--text-sm); min-width: 0; }
+.issue-filters input, .issue-filters select, .issue-triage input, .issue-triage select, .issue-triage textarea, .issue-split input { width: 100%; min-width: 0; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--input); color: var(--text); padding: 9px 12px; }
+.issue-filters summary { cursor: pointer; margin-top: 16px; color: var(--muted); }
+.issue-filter-secondary { margin-top: 16px; }
+.issue-coverage { margin: 0 0 24px; font-size: var(--text-sm); }
+.panel > .issue-coverage { padding: 16px 24px; margin: 0; }
+.issue-chart-data { padding: 12px 24px 20px; font-size: var(--text-sm); }
+.issue-chart-data summary { cursor: pointer; color: var(--muted); }
+.issue-chart-data a { display: block; padding: 4px 0; color: var(--blue); }
+.hotspot-links { max-height: 230px; overflow-y: auto; padding: 0 24px; }
+.hotspot-link { display: flex; gap: 20px; justify-content: space-between; width: 100%; padding: 10px 0; background: transparent; color: var(--text); border: 0; border-bottom: 1px solid var(--border); text-align: left; font-size: var(--text-sm); }
+.hotspot-link span { min-width: 0; overflow-wrap: anywhere; }
+.hotspot-link:hover { color: var(--accent); }
+.issue-increase { color: var(--amber); }
+.badge.open, .badge.acknowledged { color: var(--amber); background: #342e21; }
+.badge.investigating { color: var(--blue); background: #232d3b; }
+.badge.resolved { color: var(--green); background: #223229; }
+.badge.ignored { color: var(--muted); background: var(--surface); }
+.issue-triage, .issue-split { display: grid; gap: 16px; padding: 24px; }
+.issue-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.issue-triage textarea { resize: vertical; }
+.issue-saved { margin-left: 16px; font-size: var(--text-sm); }
+.issue-checkbox { display: flex !important; flex-direction: row !important; align-items: center; gap: 10px; color: var(--text) !important; }
+.issue-checkbox input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+.merge-candidates { display: grid; gap: 12px; }
+.merge-candidates label { flex-wrap: wrap; }
+.merge-candidates small { color: var(--muted); }
+.error-occurrence { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.occurrence-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.occurrence-heading > span { color: var(--muted); font-size: var(--text-sm); }
+.error-occurrence summary { cursor: pointer; overflow-wrap: anywhere; }
+.error-occurrence details p, .error-occurrence details ul { margin-top: 12px; overflow-wrap: anywhere; }
+.error-occurrence .code-block { margin-top: 12px; max-height: 360px; }
+.occurrence-links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: var(--text-sm); }
+.issue-activity { list-style: none; margin: 0; padding: 0 24px; }
+.issue-activity > li { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.issue-activity > li > div:first-child { display: flex; justify-content: space-between; gap: 16px; }
+.issue-activity span, .issue-activity p, .issue-activity ul { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .issue-filter-primary, .issue-filter-secondary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .issue-triage, .issue-split, .error-occurrence { padding: 20px; }
+  .sidebar nav { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 480px) {
+  .issue-filter-primary, .issue-filter-secondary, .issue-form-row { grid-template-columns: 1fr; }
+  .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
 /* Responsive layouts: preserve legibility and let content wrap. */
 @media (min-width: 1600px) {
   main { padding-inline: 48px; } .topbar { padding-inline: 48px; }

@@ -33,6 +33,7 @@ from .models import (
 from .repository_source import repository_root
 from .service import DashboardService
 from .store import ControlStore
+from .issue_api import router as issue_router
 
 
 async def reconciliation_loop(service: DashboardService):
@@ -65,6 +66,7 @@ def get_service(request: Request) -> DashboardService:
 
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
+router.include_router(issue_router)
 
 
 def found(service: DashboardService, table: str, key: str) -> dict:
