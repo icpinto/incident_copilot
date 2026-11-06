@@ -74,10 +74,11 @@ sinks:
     encoding: { codec: json }
     framing: { method: bytes }
     batch: { max_events: 1 }
-    healthcheck: { uri: http://api:8080/health }
+    healthcheck: { enabled: false }
     request:
       headers:
         Authorization: "Bearer ${IC_LOG_INGEST_TOKEN}"
+        Content-Type: application/json
   log_api:
     type: http
     inputs: [incident_payload]
@@ -87,10 +88,11 @@ sinks:
     framing: { method: bytes }
     batch: { max_events: 1 }
     buffer: { type: disk, max_size: 268435488 }
-    healthcheck: { uri: http://api:8080/health }
+    healthcheck: { enabled: false }
     request:
       concurrency: 1
       rate_limit_num: 10
       rate_limit_duration_secs: 60
       headers:
         Authorization: "Bearer ${IC_LOG_INGEST_TOKEN}"
+        Content-Type: application/json
