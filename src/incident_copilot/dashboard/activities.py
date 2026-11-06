@@ -59,10 +59,6 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
         raise ValueError("Incident not found in shared control store")
     config = Settings(**store.get("revisions", run["config_revision"]))
     inputs = run["input"]
-    root = Path(inputs["repo_root"])
-    compose = Path(inputs["compose_path"]) if inputs.get("compose_path") else None
-    if compose and not compose.is_absolute():
-        compose = root / compose
     evidence = run["evidence"]
     timeline = run["timeline"]
     try:
@@ -76,6 +72,49 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
         "connection_error": None,
     })
     changes = {}
+    if inputs.get("version_linked") and stage == "indexing":
+        from temporalio.exceptions import ApplicationError
+
+        from .deployed_source import prepare_deployed_snapshot
+        from .repository_sync import SyncFailure
+        try:
+            async with reasoning_heartbeat(activity):
+                snapshot = await asyncio.to_thread(prepare_deployed_snapshot, inputs, config,
+                                                   store.repository_token(run["repository_id"]))
+            inputs.update(repo_root=snapshot["root"], compose_path=snapshot.get("compose_path"),
+                          repository_snapshot=snapshot,
+                          repository_source={"source_type": inputs["repository_profile"]["source_type"],
+                              "remote_url": inputs["repository_profile"].get("remote_url") or inputs["repository_profile"]["repo_root"],
+                              "branch": inputs["repository_profile"].get("branch") or "",
+                              "commit": snapshot["revision"]})
+            resolution = {"status": "matched", "requested_commit": (inputs.get("deployment_context") or {}).get("revision"),
+                          "analyzed_commit": snapshot["revision"],
+                          "reason": "Analyzing the commit declared by the emitting container. Runtime file contents are not verified."}
+            run.update(repository_source=inputs["repository_source"], source_resolution=resolution)
+            store.update("incidents", incident_id, {"input": inputs, "repository_source": run["repository_source"],
+                                                    "source_resolution": resolution, "error": None})
+        except (SyncFailure, ValueError, OSError) as error:
+            reason = str(error) if isinstance(error, SyncFailure) else "Deployed source could not be prepared. Check repository paths, Compose metadata, and worker storage; then rerun."
+            store.update("incidents", incident_id, {"source_resolution": {
+                "status": "unavailable", "requested_commit": (inputs.get("deployment_context") or {}).get("revision"),
+                "analyzed_commit": None, "reason": reason}, "error": reason})
+            raise ApplicationError(reason, type="DeployedSourceUnavailable",
+                                   non_retryable=not getattr(error, "transient", False)) from None
+    if inputs.get("version_linked") and run.get("source_resolution", {}).get("status") != "matched":
+        raise ValueError("Deployed source must be resolved before source analysis.")
+    root = Path(inputs["repo_root"])
+    compose = Path(inputs["compose_path"]) if inputs.get("compose_path") else None
+    if compose and not compose.is_absolute():
+        compose = root / compose
+    if inputs.get("version_linked"):
+        from incident_copilot.tools.git_local import clean_revision
+        if await asyncio.to_thread(clean_revision, root) != inputs["repository_snapshot"]["revision"]:
+            from temporalio.exceptions import ApplicationError
+            reason = "The incident's pinned deployed source changed. Source analysis stopped; rerun to prepare a clean snapshot."
+            store.update("incidents", incident_id, {"source_resolution": {
+                "status": "unavailable", "requested_commit": (inputs.get("deployment_context") or {}).get("revision"),
+                "analyzed_commit": None, "reason": reason}, "error": reason})
+            raise ApplicationError(reason, type="DeployedSourceUnavailable", non_retryable=True)
     if stage == "indexing":
         validation = await asyncio.to_thread(validate_repository, str(root), str(compose) if compose else None)
         if not validation["valid"]:
@@ -86,6 +125,11 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
         else:
             summary = await asyncio.to_thread(index_repository, root, compose, Path(run["index_db_path"]))
             evidence["index_summary"] = summary.model_dump(mode="json")
+        if run.get("deployment_context") and not inputs.get("version_linked"):
+            resolution = {"status": "unknown", "requested_commit": run["deployment_context"].get("revision"),
+                          "analyzed_commit": evidence["index_summary"].get("repo_revision"),
+                          "reason": "Version linking is disabled for this service; analysis uses the configured repository source."}
+            changes["source_resolution"] = resolution
         if not inputs.get("repository_snapshot") and store.get("repositories", run["repository_id"]):
             store.update("repositories", run["repository_id"], {"index_summary": evidence["index_summary"], "validation": validation})
     elif stage == "correlating":
@@ -149,6 +193,8 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
         ) if key in state})
         report = build_report(state).model_dump(mode="json")
         report["repository_source"] = run.get("repository_source")
+        report["deployment_context"] = run.get("deployment_context")
+        report["source_resolution"] = run.get("source_resolution", {"status": "unknown"})
         if run.get("repository_source"):
             from .repository_source import public_snapshot_payload
             report = public_snapshot_payload(report, str(root), run["repository_source"]["remote_url"])

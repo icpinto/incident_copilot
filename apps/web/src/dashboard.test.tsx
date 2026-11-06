@@ -67,7 +67,7 @@ describe('dashboard workflows', () => {
 
   it('submits repository, logs, and service hint without waiting for the diagnosis', async () => {
     const requests: { url: string; body: Record<string, unknown> }[] = [];
-    mockFetch((url, init) => { if (url.includes('/repositories')) return [repo]; requests.push({ url, body: JSON.parse(String(init?.body)) }); return { ...run, status: 'queued' }; });
+    mockFetch((url, init) => { if (url.includes('/repositories')) return [repo]; if (url.includes('/deployments')) return { items: [], total: 0, page: 1, page_size: 20 }; requests.push({ url, body: JSON.parse(String(init?.body)) }); return { ...run, status: 'queued' }; });
     view(<Routes><Route path="/" element={<NewIncident />} /><Route path="/incidents/:id" element={<p>Saved incident</p>} /></Routes>);
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByLabelText(/Repository profile/), 'repo');

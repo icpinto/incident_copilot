@@ -4,7 +4,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +49,12 @@ class ControlStore:
             """)
             from .issue_capture import SCHEMA
             db.executescript(SCHEMA)
+            from .deployments import SCHEMA as DEPLOYMENT_SCHEMA
+            db.executescript(DEPLOYMENT_SCHEMA)
+            # Additive, idempotent migration; the original table remains intact.
+            db.execute("""INSERT OR IGNORE INTO collector_sources
+                (collector_id,project,services,repository_id,enabled,last_seen)
+                SELECT 'legacy',project,services,repository_id,enabled,last_seen FROM log_sources""")
             db.execute("INSERT OR IGNORE INTO configuration(key,payload) VALUES ('error_tracking',?)",
                        (json.dumps({"schema_version": 1, "tracking_since": utcnow()}),))
 
@@ -205,12 +211,31 @@ class ControlStore:
         return payload
 
     def create_incident(self, record: dict, infrastructure: dict, *, capture: dict | None = None,
-                        original_batch_id: str | None = None) -> None:
+                        original_batch_id: str | None = None, collector_event: dict | None = None) -> bool:
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT payload FROM configuration WHERE key='infrastructure'").fetchone()
             if row and json.loads(row[0]) != infrastructure:
                 raise ValueError("Infrastructure settings changed. Restart both the API and worker before submitting a new incident.")
+            if collector_event is not None:
+                from .issue_capture import capture_upload
+                key = collector_event["event_id"]
+                if db.execute("SELECT 1 FROM log_ingest_events WHERE event_id=?", (key,)).fetchone():
+                    collector_event["outcome"] = (0, 0)
+                    return False
+                now = record["created_at"]
+                db.execute("INSERT INTO log_ingest_events VALUES (?,?,?)", (key, collector_event["project"], now))
+                cooldown_key = collector_event["cooldown_key"]
+                previous = db.execute("SELECT last_started FROM log_investigation_cooldowns WHERE repository_id=? AND fingerprint=?",
+                                      (record["repository_id"], cooldown_key)).fetchone()
+                if previous and datetime.fromisoformat(previous[0]) > datetime.now(UTC) - timedelta(hours=1):
+                    capture_upload(db, record, capture, link_incident=False)
+                    collector_event["outcome"] = (1, 0)
+                    return False
+                db.execute("""INSERT INTO log_investigation_cooldowns VALUES (?,?,?)
+                    ON CONFLICT(repository_id,fingerprint) DO UPDATE SET last_started=excluded.last_started""",
+                    (record["repository_id"], cooldown_key, now))
+                collector_event["outcome"] = (1, 1)
             self._put(db, "incidents", record["id"], record)
             if capture is not None:
                 from .issue_capture import capture_upload
@@ -219,6 +244,7 @@ class ControlStore:
                 db.execute("INSERT INTO incident_error_batches VALUES (?,?)", (record["id"], original_batch_id))
                 record.update(error_batch_id=original_batch_id, error_tracking_status="duplicate")
             self._put(db, "incidents", record["id"], record)
+        return True
 
     def config(self, key: str) -> dict:
         with self.connection() as db:

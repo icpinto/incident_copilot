@@ -18,6 +18,22 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         parts.extend([f"- Repository: `{source.get('remote_url', '')}`",
                       f"- Branch: `{source.get('branch', '')}`",
                       f"- Source commit: `{source.get('commit', '')}`"])
+    if report.deployment_context:
+        deployed = report.deployment_context
+        resolution = report.source_resolution
+        parts.extend(["", "## Deployed Version", "",
+                      f"- Environment: `{deployed.environment}`; service: `{deployed.service}`",
+                      f"- Collector: `{deployed.collector_id}`; container: `{deployed.container_id}`",
+                      f"- Release version: `{deployed.version or 'unknown'}`",
+                      f"- Declared commit: `{deployed.revision or 'unknown'}`",
+                      f"- Analyzed commit: `{resolution.analyzed_commit or 'unknown'}`",
+                      f"- Source resolution: {resolution.status}",
+                      f"- Image reference: `{deployed.image_ref or 'unknown'}`",
+                      f"- Image ID: `{deployed.image_id or 'unknown'}`",
+                      f"- Registry digests: `{', '.join(deployed.repo_digests) or 'unknown'}`",
+                      "- Labels declare build provenance; runtime contents and causation are not verified.", ""])
+        if resolution.reason:
+            parts.extend([resolution.reason, ""])
     parts.extend([f"- Diagnosis outcome: {report.diagnosis_status.replace('_', ' ').capitalize()}"])
     if report.diagnosis_reason:
         parts.append(f"- Reason: {report.diagnosis_reason}")

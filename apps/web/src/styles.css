@@ -481,3 +481,7 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.version-services { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 7px; }
+.version-services legend { color: var(--text); padding: 0 6px; }
+.version-services .issue-checkbox { margin: 10px 0; }

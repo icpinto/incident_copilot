@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -108,8 +110,9 @@ class DashboardService:
 
     def public(self, payload: dict) -> IncidentRecord:
         public = self.configuration.redact(payload)
-        if payload.get("repository_source"):
-            public = public_snapshot_payload(public, payload["input"]["repo_root"], payload["repository_source"]["remote_url"])
+        if payload.get("repository_source") and payload["input"].get("repo_root"):
+            public = public_snapshot_payload(public, payload["input"]["repo_root"],
+                                             payload["repository_source"].get("remote_url") or "repository")
         return IncidentRecord.model_validate(public)
 
     def public_repository(self, profile: dict) -> RepositoryProfile:
@@ -146,9 +149,12 @@ class DashboardService:
         return self.store.create_repository_sync(job, self.configuration.infrastructure)
 
     def submit(self, submission: IncidentSubmission, *, original: dict | None = None,
-               capture_hash: str | None = None) -> IncidentRecord:
+               capture_hash: str | None = None, deployment_context: dict | None = None,
+               version_linked: bool = False, prepared_capture: dict | None = None,
+               collector_event: dict | None = None) -> IncidentRecord | None:
         profile = self.store.get("repositories", submission.repository_id)
-        pinned_rerun = original and original.get("input", {}).get("repository_snapshot")
+        pinned_rerun = original and (original.get("input", {}).get("repository_snapshot")
+                                     or original.get("input", {}).get("version_linked"))
         if profile is None or (profile.get("archived") and not pinned_rerun):
             raise ValueError("Select an active repository profile.")
         if not submission.log_text.strip():
@@ -158,8 +164,32 @@ class DashboardService:
         inputs = submission.model_dump() | {
             "repo_root": repository_root(profile), "compose_path": profile.get("compose_path"),
         }
+        if not original and submission.deployment_id:
+            from .deployments import context, get_deployment
+            with self.store.connection() as db:
+                observation = get_deployment(db, submission.deployment_id)
+                source = db.execute("SELECT * FROM collector_sources WHERE collector_id=? AND project=?",
+                    (observation["collector_id"], observation["project"])).fetchone() if observation else None
+            if not source or source["repository_id"] != profile["id"]:
+                raise ValueError("Choose a deployment mapped to this repository.")
+            if submission.user_hint_service and submission.user_hint_service != observation["service"]:
+                raise ValueError("The service hint conflicts with the selected deployment.")
+            deployment_context = self.configuration.redact(context(observation, dict(source)))
+            version_linked = True
+            inputs["user_hint_service"] = observation["service"]
         if original:
             inputs = original["input"] | submission.model_dump()
+            deployment_context = original.get("deployment_context")
+            version_linked = inputs.get("version_linked", False)
+        elif version_linked:
+            inputs.update(version_linked=True, deployment_context=deployment_context,
+                          repository_profile={key: profile.get(key) for key in
+                              ("id", "source_type", "repo_root", "remote_url", "branch", "compose_path")},
+                          repository_cache_dir=str(config.repository_cache_dir))
+            inputs["repository_profile"]["source_type"] = profile.get("source_type") or "local"
+            inputs["source_identity"] = source_identity(profile)
+            # Resolve only on the worker. The latest branch snapshot is irrelevant.
+            inputs["repo_root"] = None
         elif profile.get("source_type", "local") == "github":
             if not inputs["repo_root"]:
                 raise ValueError("Check & sync this GitHub repository before starting an analysis.")
@@ -172,6 +202,10 @@ class DashboardService:
             "id": incident_id, "title": submission.title.strip() or f"Incident {incident_id[:8]}",
             "repository_id": profile["id"], "repository_name": profile["name"],
             "repository_source": inputs.get("repository_source"),
+            "deployment_context": deployment_context,
+            "source_resolution": {"status": "pending" if version_linked else "unknown",
+                                  "requested_commit": (deployment_context or {}).get("revision"),
+                                  "analyzed_commit": None, "reason": None},
             "status": "queued", "stage": "queued", "created_at": utcnow(), "updated_at": utcnow(),
             "completed_at": None, "config_revision": self.configuration.revision(),
             "index_db_path": str(index_path), "input": inputs, "timeline": [], "report": None,
@@ -179,8 +213,8 @@ class DashboardService:
             "evidence": {"raw_log": submission.log_text}, "error": None, "connection_error": None,
             "dispatched": False,
         }
-        capture = None
-        if original is None:
+        capture = prepared_capture
+        if original is None and capture is None:
             from .issue_capture import prepare_upload
 
             def project(event):
@@ -192,9 +226,16 @@ class DashboardService:
             capture = prepare_upload(submission.log_text, project)
             if capture_hash:
                 capture["content_hash"] = capture_hash
-        self.store.create_incident(record, self.configuration.infrastructure, capture=capture,
-                                   original_batch_id=original.get("error_batch_id") if original else None)
-        return self.public(record)
+            elif deployment_context:
+                capture["content_hash"] = hashlib.sha256(json.dumps(
+                    [capture["content_hash"], deployment_context["deployment_id"]], sort_keys=True).encode()).hexdigest()
+            if deployment_context:
+                for item in capture["events"]:
+                    item["event"]["deployment_context"] = deployment_context
+        created = self.store.create_incident(record, self.configuration.infrastructure, capture=capture,
+                                   original_batch_id=original.get("error_batch_id") if original else None,
+                                   collector_event=collector_event)
+        return self.public(record) if created else None
 
     async def cancel(self, incident_id: str) -> IncidentRecord:
         async with self.lock:
@@ -240,7 +281,7 @@ class DashboardService:
                     elif status == "CANCELED":
                         changes.update(status="canceled", completed_at=completed_at)
                     elif status in {"FAILED", "TIMED_OUT", "TERMINATED"}:
-                        changes.update(status="failed", completed_at=completed_at, error=f"Analysis {status.lower().replace('_', ' ')} during {current['stage']}. Check worker logs and repository access, then rerun.")
+                        changes.update(status="failed", completed_at=completed_at, error=((current.get("source_resolution") or {}).get("reason") if (current.get("source_resolution") or {}).get("status") == "unavailable" else None) or f"Analysis {status.lower().replace('_', ' ')} during {current['stage']}. Check worker logs and repository access, then rerun.")
                     elif progress and current["status"] == "queued" and progress.get("stage") != "queued":
                         changes.update(status="running", stage=progress["stage"])
                     self.store.update("incidents", run["id"], changes)

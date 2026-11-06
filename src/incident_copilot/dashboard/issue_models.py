@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from incident_copilot.schemas.deployment import DeploymentContext
 from incident_copilot.schemas.logs import LogEvent
 
 IssueStatus = Literal["open", "acknowledged", "investigating", "resolved", "ignored"]
@@ -86,6 +87,7 @@ class InvestigationLink(BaseModel):
 
 class OccurrenceEvent(LogEvent):
     group_id: str | None = None
+    deployment_context: DeploymentContext | None = None
 
 
 class ErrorOccurrence(BaseModel):

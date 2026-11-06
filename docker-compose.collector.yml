@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       IC_LOG_INGEST_TOKEN: ${IC_LOG_INGEST_TOKEN:?Set a shared collector token}
+      IC_COLLECTOR_ID: ${IC_COLLECTOR_ID:-}
       VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION: "true"
     volumes:
       - ./collector/vector.yaml:/etc/vector/vector.yaml:ro

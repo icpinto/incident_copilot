@@ -4,19 +4,22 @@ import { useState } from 'react';
 import { api, json } from '../api';
 import { ErrorNotice, Loading, Notice, PageHeading, Panel } from '../components';
 import type { Repository } from '../types';
+import { ObservedVersions } from '../Deployment';
 
-type Source = { project: string; services: string[]; repository_id: string | null; enabled: boolean; last_seen: string };
+type Source = { collector_id: string; environment: string; versioned_services: string[]; project: string; services: string[]; repository_id: string | null; enabled: boolean; last_seen: string };
 
 function SourceRow({ source, repositories, refresh }: { source: Source; repositories: Repository[]; refresh: () => void }) {
   const [repositoryId, setRepositoryId] = useState(source.repository_id || '');
   const [enabled, setEnabled] = useState(source.enabled);
+  const [environment, setEnvironment] = useState(source.environment || 'unknown');
+  const [versionedServices, setVersionedServices] = useState(source.versioned_services || []);
   const mutation = useMutation({
-    mutationFn: () => api<Source>(`/log-sources/${encodeURIComponent(source.project)}`,
-      json('PUT', { repository_id: repositoryId || null, enabled })),
+    mutationFn: () => api<Source>(`/log-sources/${encodeURIComponent(source.project)}?collector_id=${encodeURIComponent(source.collector_id || 'legacy')}`,
+      json('PUT', { repository_id: repositoryId || null, enabled, environment: environment || 'unknown', versioned_services: versionedServices })),
     onSuccess: refresh,
   });
   return <article className="repository-card">
-    <h2>{source.project}</h2>
+    <h2>{source.project}</h2><small>Collector: {source.collector_id || 'legacy'}</small>
     <p>Services: {source.services.length ? source.services.join(', ') : 'None running'}</p>
     <p>Last seen: {new Date(source.last_seen).toLocaleString()}</p>
     <label>Repository
@@ -25,9 +28,14 @@ function SourceRow({ source, repositories, refresh }: { source: Source; reposito
         {repositories.map(repo => <option key={repo.id} value={repo.id}>{repo.name}</option>)}
       </select>
     </label>
+    <label>Environment<input aria-label={`Environment for ${source.project}`} maxLength={120} value={environment} onChange={event => setEnvironment(event.target.value)} /></label>
+    <fieldset className="version-services"><legend>Analyze deployed versions</legend><p>Selected services require a full Git commit label and matching source. Errors are saved if source is unavailable.</p>
+      {[...new Set([...source.services, ...versionedServices])].map(name => <label className="issue-checkbox" key={name}><input type="checkbox" checked={versionedServices.includes(name)} onChange={event => setVersionedServices(current => event.target.checked ? [...current, name] : current.filter(item => item !== name))} />{name}</label>)}
+    </fieldset>
     <label><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Collect errors</label>
     <div className="repo-actions"><button className="button primary" disabled={mutation.isPending || (enabled && !repositoryId)} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Saving…' : 'Save source'}</button></div>
     <ErrorNotice error={mutation.error} />
+    <ObservedVersions collectorId={source.collector_id || 'legacy'} project={source.project} />
   </article>;
 }
 
@@ -40,7 +48,7 @@ export function LogSources() {
     {query.isPending || repositories.isPending ? <Loading /> : !query.data?.length ? <Panel title="Waiting for collector"><p>No Compose projects have been discovered. Start the standalone collector on this Docker host. It reports running projects within one minute.</p></Panel> : <>
       <Notice>Only enabled projects send error context to Incident Copilot. Collection begins after you save a mapping.</Notice>
       {!repositories.data?.length && <p><Link to="/repositories">Add a repository</Link> before enabling a source.</p>}
-      <div className="repository-grid">{query.data.map(source => <SourceRow key={`${source.project}:${source.repository_id}:${source.enabled}`} source={source} repositories={repositories.data || []} refresh={() => client.invalidateQueries({ queryKey: ['log-sources'] })} />)}</div>
+      <div className="repository-grid">{query.data.map(source => <SourceRow key={`${source.collector_id}:${source.project}:${source.repository_id}:${source.enabled}:${source.environment}:${source.versioned_services?.join(',')}`} source={source} repositories={repositories.data || []} refresh={() => client.invalidateQueries({ queryKey: ['log-sources'] })} />)}</div>
     </>}
   </>;
 }

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from incident_copilot.schemas.candidates import CandidateLocation
 from incident_copilot.schemas.code_graph import GraphContext, GraphPreparation
+from incident_copilot.schemas.deployment import DeploymentContext, SourceResolution
 from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.guardrails import GuardrailSummary
 from incident_copilot.schemas.index import RepoIndexSummary
@@ -84,6 +85,7 @@ class IncidentSubmission(BaseModel):
     title: str = Field(default="", max_length=200)
     log_text: str = Field(min_length=1, max_length=2_000_000)
     user_hint_service: str | None = Field(default=None, max_length=200)
+    deployment_id: str | None = Field(default=None, max_length=128)
 
 
 class StageEvent(BaseModel):
@@ -114,6 +116,8 @@ class IncidentRecord(BaseModel):
     repository_id: str
     repository_name: str
     repository_source: dict[str, str] | None = None
+    deployment_context: DeploymentContext | None = None
+    source_resolution: SourceResolution = Field(default_factory=SourceResolution)
     status: Literal["queued", "running", "completed", "failed", "canceled"]
     created_at: str
     updated_at: str

@@ -19,6 +19,11 @@ transforms:
     source: |
       .project = to_string(.label."com.docker.compose.project") ?? ""
       .service = to_string(.label."com.docker.compose.service") ?? ""
+      .collector_id = "${IC_COLLECTOR_ID}"
+      .revision = to_string(.label."org.opencontainers.image.revision") ?? null
+      .version = to_string(.label."org.opencontainers.image.version") ?? null
+      .source_url = to_string(.label."org.opencontainers.image.source") ?? null
+      .image_ref = to_string(.image) ?? null
       .error_count = 0
       body = downcase(to_string(.message) ?? "")
       if contains(body, "error") || contains(body, "exception") || contains(body, "traceback") || contains(body, "fatal") || contains(body, "panic") || contains(body, "failed") {
@@ -54,6 +59,8 @@ transforms:
     inputs: [errors]
     source: |
       . = {
+        "collector_id": .collector_id,
+        "release": {"revision": .revision, "version": .version, "source_url": .source_url, "image_ref": .image_ref},
         "project": .project,
         "service": .service,
         "container_id": .container_id,

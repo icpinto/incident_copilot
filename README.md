@@ -102,6 +102,11 @@ is enabled are discarded. Docker socket access grants powerful host privileges,
 even when the socket bind mount is marked read-only; restrict who can deploy or
 modify the collector.
 
+Opt-in [deployed-version linking](docs/deployed-versions.md) connects each application
+service's errors to its container's declared Git commit. Investigations use that
+exact source snapshot instead of the latest synced branch; unavailable source
+keeps the incident saved with a clear failure reason.
+
 Code graph evidence is enabled by default. The application prepares each repository's
 graph automatically, waiting up to five minutes before falling back to normal diagnosis.
 Use a clean, committed checkout. **Repositories** shows graph status and provides

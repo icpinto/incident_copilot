@@ -62,8 +62,9 @@ def index_fingerprint() -> str:
 class GitClient:
     """Never expose Git's stderr or put a credential in argv, URLs, or .git/config."""
 
-    def __init__(self, token: str = ""):
+    def __init__(self, token: str = "", *, allow_local: bool = False):
         self.token = token
+        self.allow_local = allow_local
 
     def run(self, *args: str, cwd: Path | None = None, timeout: int = 600) -> str:
         env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
@@ -89,6 +90,8 @@ class GitClient:
             "protocol.allow=never",
             "-c",
             "protocol.https.allow=always",
+            "-c",
+            "protocol.file.allow=" + ("always" if self.allow_local else "never"),
             "-c",
             "http.followRedirects=false",
         ]
