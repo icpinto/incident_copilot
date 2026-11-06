@@ -133,7 +133,7 @@ def new_issue(
     return issue_id
 
 
-def capture_upload(db: sqlite3.Connection, record: dict, capture: dict) -> None:
+def capture_upload(db: sqlite3.Connection, record: dict, capture: dict, *, link_incident: bool = True) -> None:
     repository_id, now = record["repository_id"], record["created_at"]
     batch = db.execute(
         "SELECT id FROM error_batches WHERE repository_id=? AND content_hash=?",
@@ -220,4 +220,5 @@ def capture_upload(db: sqlite3.Connection, record: dict, capture: dict) -> None:
                     for value in values
                 ],
             )
-    db.execute("INSERT INTO incident_error_batches VALUES (?,?)", (record["id"], batch_id))
+    if link_incident:
+        db.execute("INSERT INTO incident_error_batches VALUES (?,?)", (record["id"], batch_id))

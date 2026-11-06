@@ -145,7 +145,8 @@ class DashboardService:
                "config_revision": self.configuration.revision()}
         return self.store.create_repository_sync(job, self.configuration.infrastructure)
 
-    def submit(self, submission: IncidentSubmission, *, original: dict | None = None) -> IncidentRecord:
+    def submit(self, submission: IncidentSubmission, *, original: dict | None = None,
+               capture_hash: str | None = None) -> IncidentRecord:
         profile = self.store.get("repositories", submission.repository_id)
         pinned_rerun = original and original.get("input", {}).get("repository_snapshot")
         if profile is None or (profile.get("archived") and not pinned_rerun):
@@ -189,6 +190,8 @@ class DashboardService:
                 return event
 
             capture = prepare_upload(submission.log_text, project)
+            if capture_hash:
+                capture["content_hash"] = capture_hash
         self.store.create_incident(record, self.configuration.infrastructure, capture=capture,
                                    original_batch_id=original.get("error_batch_id") if original else None)
         return self.public(record)

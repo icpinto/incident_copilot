@@ -1,0 +1,96 @@
+data_dir: /var/lib/vector
+
+sources:
+  docker:
+    type: docker_logs
+    auto_partial_merge: true
+  inventory:
+    type: exec
+    command: [python3, /etc/vector/inventory.py]
+    mode: scheduled
+    include_stderr: false
+    scheduled:
+      exec_interval_secs: 60
+
+transforms:
+  compose_logs:
+    type: remap
+    inputs: [docker]
+    source: |
+      .project = to_string(.label."com.docker.compose.project") ?? ""
+      .service = to_string(.label."com.docker.compose.service") ?? ""
+      .error_count = 0
+      body = downcase(to_string(.message) ?? "")
+      if contains(body, "error") || contains(body, "exception") || contains(body, "traceback") || contains(body, "fatal") || contains(body, "panic") || contains(body, "failed") {
+        .error_count = 1
+      }
+      parsed, err = parse_json(.message)
+      if err == null && is_object(parsed) {
+        level = downcase(to_string(parsed.level) ?? "")
+        if level == "error" || level == "fatal" || level == "critical" {
+          .error_count = 1
+        }
+      }
+      .message = (to_string(.timestamp) ?? "") + " " + (to_string(.message) ?? "")
+  only_compose:
+    type: filter
+    inputs: [compose_logs]
+    condition: '.project != "" && .service != ""'
+  windows:
+    type: reduce
+    inputs: [only_compose]
+    group_by: [project, service, container_id]
+    end_every_period_ms: 30000
+    flush_period_ms: 1000
+    max_events: 200
+    merge_strategies:
+      message: concat_newline
+  errors:
+    type: filter
+    inputs: [windows]
+    condition: '(to_int(.error_count) ?? 0) > 0'
+  incident_payload:
+    type: remap
+    inputs: [errors]
+    source: |
+      . = {
+        "project": .project,
+        "service": .service,
+        "container_id": .container_id,
+        "batch_id": to_string(.timestamp) ?? "unknown",
+        "log_text": truncate(to_string(.message) ?? "", limit: 256000)
+      }
+  inventory_payload:
+    type: remap
+    inputs: [inventory]
+    source: '. = parse_json!(.message)'
+
+sinks:
+  inventory_api:
+    type: http
+    inputs: [inventory_payload]
+    uri: http://api:8080/api/collector/inventory
+    method: post
+    encoding: { codec: json }
+    framing: { method: bytes }
+    batch: { max_events: 1 }
+    healthcheck: { uri: http://api:8080/health }
+    request:
+      headers:
+        Authorization: "Bearer ${IC_LOG_INGEST_TOKEN}"
+  log_api:
+    type: http
+    inputs: [incident_payload]
+    uri: http://api:8080/api/collector/logs
+    method: post
+    encoding: { codec: json }
+    framing: { method: bytes }
+    batch: { max_events: 1 }
+    buffer: { type: disk, max_size: 268435488 }
+    healthcheck: { uri: http://api:8080/health }
+    request:
+      concurrency: 1
+      rate_limit_num: 10
+      rate_limit_duration_secs: 60
+      headers:
+        Authorization: "Bearer ${IC_LOG_INGEST_TOKEN}"

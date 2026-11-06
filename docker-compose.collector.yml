@@ -1,0 +1,24 @@
+name: incident-copilot-collector
+
+services:
+  vector:
+    build:
+      context: ./collector
+    restart: unless-stopped
+    environment:
+      IC_LOG_INGEST_TOKEN: ${IC_LOG_INGEST_TOKEN:?Set a shared collector token}
+      VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION: "true"
+    volumes:
+      - ./collector/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - collector-data:/var/lib/vector
+    networks:
+      - copilot
+
+networks:
+  copilot:
+    external: true
+    name: ${IC_COPILOT_NETWORK:?Set the existing Incident Copilot Docker network}
+
+volumes:
+  collector-data:

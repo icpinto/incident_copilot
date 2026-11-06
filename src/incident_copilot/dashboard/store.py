@@ -37,6 +37,15 @@ class ControlStore:
                     created_at TEXT NOT NULL, payload TEXT NOT NULL);
                 CREATE UNIQUE INDEX IF NOT EXISTS repository_active_sync
                     ON repository_syncs(repository_id) WHERE status IN ('queued','running');
+                CREATE TABLE IF NOT EXISTS log_sources (
+                    project TEXT PRIMARY KEY, services TEXT NOT NULL DEFAULT '[]',
+                    repository_id TEXT, enabled INTEGER NOT NULL DEFAULT 0,
+                    last_seen TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS log_ingest_events (
+                    event_id TEXT PRIMARY KEY, project TEXT NOT NULL, received_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS log_investigation_cooldowns (
+                    repository_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                    last_started TEXT NOT NULL, PRIMARY KEY(repository_id, fingerprint));
             """)
             from .issue_capture import SCHEMA
             db.executescript(SCHEMA)

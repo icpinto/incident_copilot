@@ -9,6 +9,7 @@ import { Settings } from './pages/Settings';
 import { Empty } from './components';
 import { ErrorIntelligence } from './pages/ErrorIntelligence';
 import { Issues, IssueDetail } from './pages/Issues';
+import { LogSources } from './pages/LogSources';
 
 export function App() {
   const location = useLocation();
@@ -27,6 +28,7 @@ export function App() {
     retry: false,
   });
   const section = location.pathname.startsWith('/intelligence') ? 'Error intelligence'
+    : location.pathname.startsWith('/log-sources') ? 'Log sources'
     : location.pathname.startsWith('/issues') ? 'Issues'
     : location.pathname.startsWith('/repositories') ? 'Repositories'
     : location.pathname.startsWith('/settings') ? 'Configuration'
@@ -55,6 +57,7 @@ export function App() {
         <NavLink to="/issues"><Search size={18} />Issues</NavLink>
         <NavLink to="/incidents"><Activity size={18} />Incidents</NavLink>
         <NavLink to="/repositories"><FolderGit2 size={18} />Repositories</NavLink>
+        <NavLink to="/log-sources"><Radio size={18} />Log sources</NavLink>
         <NavLink to="/settings"><Settings2 size={18} />Configuration</NavLink>
       </nav>
       <div className="sidebar-bottom">
@@ -87,6 +90,7 @@ export function App() {
           <Route path="/incidents/new" element={<NewIncident />} />
           <Route path="/incidents/:id" element={<IncidentDetail />} />
           <Route path="/repositories" element={<Repositories />} />
+          <Route path="/log-sources" element={<LogSources />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Empty title="Page not found" description="Use the workspace navigation to return to your incidents." action={false} />} />
         </Routes>

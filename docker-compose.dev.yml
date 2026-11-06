@@ -121,6 +121,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
+      IC_LOG_INGEST_TOKEN: ${IC_LOG_INGEST_TOKEN:-}
       IC_CONTROL_DB_PATH: /app/data/control.db
       IC_DATA_DIR: /app/data/artifacts
       IC_INDEX_DB_PATH: /app/data/indexes/repo_index.db

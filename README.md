@@ -79,6 +79,29 @@ is available at http://localhost:8233.
 4. Start **New analysis**, choose a repository, and paste or load error logs.
 5. Follow activity stages, inspect hypotheses and source evidence, and export the report.
 
+### Standalone Docker log collector
+
+To collect errors from other Compose projects on the **same Docker host**, set a
+shared `IC_LOG_INGEST_TOKEN` in the Incident Copilot `.env` and recreate its API
+container. Find its network with `docker inspect incident-copilot-api --format
+'{{json .NetworkSettings.Networks}}'`, then set `IC_COPILOT_NETWORK` to that network
+name. Start the separately packaged collector:
+
+```bash
+docker compose -f docker-compose.collector.yml up --build -d
+```
+
+The collector reads existing Compose labels through the local Docker daemon; target
+application Compose files require no changes. Open **Log sources**, choose a
+discovered project, map it to an active repository, and enable collection. The
+worker must be able to access that repository's source. Vector sends bounded
+30-second error windows and nearby lines to the API; repeated errors update
+Issues, with at most one investigation per fingerprint per hour. The collector
+uses a disk buffer while the API is unavailable. Logs arriving before a mapping
+is enabled are discarded. Docker socket access grants powerful host privileges,
+even when the socket bind mount is marked read-only; restrict who can deploy or
+modify the collector.
+
 Code graph evidence is enabled by default. The application prepares each repository's
 graph automatically, waiting up to five minutes before falling back to normal diagnosis.
 Use a clean, committed checkout. **Repositories** shows graph status and provides
