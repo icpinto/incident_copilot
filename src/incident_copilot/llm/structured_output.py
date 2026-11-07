@@ -5,6 +5,7 @@ from pydantic_core import PydanticCustomError
 
 from incident_copilot.llm.validation import SEMANTIC_MESSAGES
 from incident_copilot.schemas.diagnosis import Hypothesis
+from incident_copilot.schemas.runtime import FailureLayer
 
 
 class GeneratedHypothesis(BaseModel):
@@ -12,6 +13,8 @@ class GeneratedHypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rank: int = Field(ge=1, le=3)
+    failure_layer: FailureLayer = "unknown"
+    evidence_refs: list[str] = Field(default_factory=list, max_length=20)
     title: str
     explanation: str
     evidence: list[str]
@@ -23,7 +26,8 @@ def report_hypothesis(raw: dict, evidence_refs: list[str] | None = None) -> dict
     return Hypothesis(
         **{key: raw[key] for key in ("rank", "title", "explanation", "evidence", "next_checks")},
         confidence=None, confidence_status="unavailable", model_score=raw["confidence"],
-        evidence_refs=evidence_refs or [],
+        failure_layer=raw.get("failure_layer", "unknown"),
+        evidence_refs=evidence_refs if evidence_refs is not None else raw.get("evidence_refs", []),
     ).model_dump(mode="json")
 
 
@@ -50,3 +54,21 @@ class HypothesesResponse(BaseModel):
         if self.diagnosis_status == "provisional" and not self.hypotheses:
             raise PydanticCustomError("provisional_requires_hypothesis", SEMANTIC_MESSAGES["provisional_requires_hypothesis"])
         return self
+
+
+def hypotheses_schema():
+    """Strict provider schema; parsing still accepts defaults in historical responses."""
+    schema = HypothesesResponse.model_json_schema()
+    def visit(node):
+        if isinstance(node, dict):
+            node.pop("default", None)
+            if node.get("type") == "object":
+                node["additionalProperties"] = False
+                node["required"] = list(node.get("properties", {}))
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+    visit(schema)
+    return schema

@@ -45,6 +45,7 @@ from incident_copilot.schemas.investigation import (
     ToolOutcome,
 )
 from incident_copilot.schemas.logs import IncidentContext
+from incident_copilot.schemas.runtime import FailureLayer
 from incident_copilot.schemas.validation import AnalysisValidationError
 from incident_copilot.tools.git_local import clean_revision
 
@@ -82,6 +83,15 @@ completed requests. find_symbols searches indexed names; search_source searches
 literal text in indexed files; read_source reads a verified symbol or indexed file
 range; get_related_calls reads one-hop incoming/outgoing calls for an exact symbol;
 get_file_context reads indexed metadata. Symbol references use file_path, name,
+get_runtime_evidence retrieves logs, resources, dependencies, traces, or latency within the
+supplied runtime_scope. Select only listed services and observed trace IDs, with a 1-15 minute
+lookback. There are at most four runtime follow-ups within the shared request budget.
+When runtime_scope is empty, runtime retrieval is unavailable for this execution.
+Runtime observations are independent of source availability. Treat missing telemetry as a gap.
+Snapshot health is observed at collection time, not incident-time health. Network counters,
+healthy containers, time proximity, and timeouts alone do not prove a cause. Dependency logs
+without trace linkage are contextual. Label failure_layer application, database, network,
+infrastructure, or unknown and support any suspected layer with evidence, not a symptom alone.
 line_start, line_end exactly as supplied. Resolve ambiguous names before reading.
 Find relevant tests and configuration references when useful; do not execute code,
 invent runtime observations, or request credentials. State unresolved runtime
@@ -93,6 +103,7 @@ evidence cannot support a causal mechanism; include useful next checks.
 class WorkingHypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=128)
+    failure_layer: FailureLayer = "unknown"
     rank: int = Field(ge=1, le=3, strict=True)
     title: str = Field(min_length=1, max_length=300)
     explanation: str = Field(min_length=1, max_length=3000)
@@ -179,6 +190,10 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
                                for v in state.get("retrieval_outcomes", {}).values()],
         "evidence": [], "omitted_evidence_ids": [],
         "analysis_scope": scope_notice(state.get("incident_context")),
+        "runtime_scope": {key: value for key, value in (state.get("runtime_scope") or {}).items()
+                          if key in {"services", "trace_ids", "anchor", "limitations"}},
+        "runtime_collection": state.get("runtime_collection", []),
+        "source_unavailable": bool(state.get("source_unavailable")),
         "omitted_initial_context_count": state.get("omitted_initial_context_count", 0),
     }
     records = state.get("evidence_records", {})
@@ -217,7 +232,11 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
 
 def request_key(request: EvidenceRequest, snapshot: dict) -> str:
     arguments = request.model_dump(mode="json", exclude={"question", "hypothesis_id"}, exclude_none=True)
-    return "request-" + digest([snapshot["repository"], snapshot["revision"], arguments])
+    if request.tool != "get_runtime_evidence":
+        for field in ("capability", "trace_id", "lookback_minutes"):
+            arguments.pop(field, None)
+    return "request-" + digest([snapshot.get("runtime_scope") if request.tool == "get_runtime_evidence" else
+                               [snapshot["repository"], snapshot["revision"]], arguments])
 
 
 def _merge_graph(previous: dict | None, current: dict | None) -> dict | None:
@@ -243,6 +262,8 @@ def _merge_graph(previous: dict | None, current: dict | None) -> dict | None:
 def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
     reason = stop_reason or state.get("investigation_progress", {}).get("stop_reason", "")
     gaps = state.get("assessment_decision", {}).get("unresolved_gaps", [])
+    if state.get("source_unavailable"):
+        gaps = gaps + ["Source snapshot unavailable or unverified; source tools are disabled."]
     if state.get("omitted_initial_context_count"):
         gaps = gaps + [f"{state['omitted_initial_context_count']} initial evidence item(s) omitted by evidence limits."]
     summary = InvestigationSummary(
@@ -312,6 +333,14 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
             "truncated": bool(config.get("truncated") or len(config.get("environment", [])) > 32
                               or len(config.get("mounts", [])) > 16)},
             limitations=["Collector observation only; redacted values and mount contents are unavailable."])
+    for raw in state.get("runtime_evidence", []):
+        item = EvidenceItem.model_validate(raw).model_dump(mode="json")
+        size = len(encoded(item))
+        if size <= 8192 and initial_bytes + size <= MAX_EVIDENCE_BYTES:
+            records[item["id"]] = item
+            initial_bytes += size
+        else:
+            omitted += 1
     state.update(source_snapshot=snapshot, evidence_records=records, working_hypotheses=[],
                  pending_requests=[], retrieval_outcomes={}, investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",
@@ -334,22 +363,30 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                       if settings.guardrails_mode != "off" or journal.get("guardrails") else None)
         snapshot = journal.get("snapshot")
         if snapshot is None:
-            revision = await asyncio.to_thread(clean_revision, runtime.repo_root)
+            revision = None if payload.get("source_unavailable") else await asyncio.to_thread(clean_revision, runtime.repo_root)
             try:
                 storage = IndexStorage(runtime.index_db_path, read_only=True)
                 index_root, index_revision = storage.snapshot_identity()
             except (OSError, sqlite3.Error):
-                raise SourceSnapshotUnverifiedError("source_snapshot_unverified") from None
+                index_root, index_revision = None, None
             if not revision or index_revision != revision or not index_root or runtime.repo_root.resolve() != Path(index_root).resolve():
-                raise SourceSnapshotUnverifiedError("source_snapshot_unverified")
+                if runtime.runtime_client is None:
+                    raise SourceSnapshotUnverifiedError("source_snapshot_unverified")
+                revision, index_root, index_revision = "", "", ""
             graph = payload.get("graph_context") or {}
-            snapshot = {"repository": str(runtime.repo_root.resolve()), "revision": revision,
+            snapshot = {"repository": str(runtime.repo_root.resolve()) if revision else "", "revision": revision,
                         "index_root": index_root, "index_revision": index_revision,
                         "graph_generation": ({"lastCommit": graph.get("indexed_revision"), "indexedAt": graph.get("indexed_at")}
                                              if graph.get("indexed_at") else None)}
+            if payload.get("runtime_scope"):
+                snapshot["runtime_scope"] = payload["runtime_scope"]
             journal.put("snapshot", snapshot)
         try:
-            tools = EvidenceTools(runtime.repo_root, runtime.index_db_path, settings, snapshot)
+            if runtime.runtime_client is not None:
+                from incident_copilot.analysis.runtime_tools import RuntimeAwareTools
+                tools = RuntimeAwareTools(runtime, settings, snapshot)
+            else:
+                tools = EvidenceTools(runtime.repo_root, runtime.index_db_path, settings, snapshot)
         except ValueError as exc:
             if type(exc) is ValueError and str(exc) == "index_unavailable":
                 raise SourceSnapshotUnverifiedError("source_snapshot_unverified") from None
@@ -394,6 +431,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                 started = time.monotonic()
                 try:
                     view = {}
+                    if runtime.runtime_client is not None and getattr(tools, "source", None) is None:
+                        state["source_unavailable"] = True
                     prompt = build_investigation_prompt(state, journal.budget(), policy_view=view)
                     if guardrails:
                         guardrails.input_text = encoded(view).decode()
@@ -455,6 +494,7 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             decision = saved["decision"]
             event = InvestigationEvent(id=key, kind="assessment", status="completed", duration_ms=saved["duration_ms"])
             return {"assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
+                    "source_unavailable": bool(state.get("source_unavailable")),
                     "engine": "deterministic+llm", "execution_budget": journal.budget(),
                     "guardrails": guardrails.summary() if guardrails else None,
                     "investigation_events": list({e["id"]: e for e in state.get("investigation_events", []) + [event.model_dump(mode="json")]}.values())}
@@ -567,6 +607,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                 result["validation_errors"] = state.get("validation_errors", []) + [outcome.validation_error.model_dump(mode="json")]
                 if outcome.reason == "evidence_validation_failed":
                     result["investigation_progress"]["stop_reason"] = "evidence_validation_failed"
+            if runtime.runtime_client is not None and hasattr(runtime.runtime_client, "scope"):
+                result["runtime_scope"] = await asyncio.to_thread(runtime.runtime_client.scope)
             await publish(dict(state) | result)
             return result
 

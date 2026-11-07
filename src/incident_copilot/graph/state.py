@@ -10,6 +10,10 @@ class DiagnosisState(TypedDict, total=False):
     deep_analysis: dict[str, Any]
     graph_context: dict[str, Any] | None
     runtime_config: dict[str, Any] | None
+    runtime_evidence: list[dict[str, Any]]
+    runtime_collection: list[dict[str, Any]]
+    runtime_scope: dict[str, Any] | None
+    source_unavailable: bool
     hypotheses: list[dict[str, Any]]
     diagnosis_status: str
     diagnosis_reason: str | None

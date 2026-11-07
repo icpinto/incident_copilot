@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from .config import Configuration, fingerprint
@@ -110,6 +110,9 @@ class DashboardService:
 
     def public(self, payload: dict) -> IncidentRecord:
         public = self.configuration.redact(payload)
+        if payload.get("runtime_scope"):
+            from .runtime_evidence import snapshot
+            public["evidence"].update(self.configuration.redact(snapshot(self.store, payload["id"])))
         if payload.get("repository_source") and payload["input"].get("repo_root"):
             public = public_snapshot_payload(public, payload["input"]["repo_root"],
                                              payload["repository_source"].get("remote_url") or "repository")
@@ -213,6 +216,14 @@ class DashboardService:
             "evidence": {"raw_log": submission.log_text}, "error": None, "connection_error": None,
             "dispatched": False,
         }
+        if original and original.get("runtime_scope"):
+            record["runtime_scope"] = original["runtime_scope"]
+            with self.store.connection() as db:
+                record["runtime_seed"] = [dict(row) for row in db.execute(
+                    "SELECT payload,result FROM runtime_requests WHERE incident_id=? AND state='completed'",
+                    (original["id"],))]
+        elif original:
+            record["runtime_skip"] = True
         capture = prepared_capture
         if original is None and capture is None:
             from .issue_capture import prepare_upload
@@ -244,6 +255,9 @@ class DashboardService:
                 raise KeyError(incident_id)
             if run["status"] in TERMINAL:
                 return self.public(run)
+            self.store.update("incidents", incident_id, {"runtime_canceled": True})
+            with self.store.connection() as db:
+                db.execute("UPDATE runtime_requests SET state='canceled',lease=NULL WHERE incident_id=? AND state IN ('queued','leased')", (incident_id,))
             if not run.get("dispatched"):
                 return self.public(self.store.update("incidents", incident_id, {
                     "status": "canceled", "completed_at": utcnow(), "connection_error": None,
@@ -264,7 +278,7 @@ class DashboardService:
                 try:
                     if not run.get("dispatched"):
                         workers = self.store.list("workers")
-                        recent = [w for w in workers if (datetime.now(timezone.utc) - datetime.fromisoformat(w["updated_at"])).total_seconds() < 20]
+                        recent = [w for w in workers if (datetime.now(UTC) - datetime.fromisoformat(w["updated_at"])).total_seconds() < 20]
                         own = fingerprint(self.configuration.infrastructure)
                         if recent and not any(w["infrastructure"] == own for w in recent):
                             raise RuntimeError("Worker configuration has not been restarted")
@@ -298,7 +312,7 @@ class DashboardService:
                 continue
             try:
                 if not job.get("dispatched"):
-                    recent = [w for w in self.store.list("workers") if (datetime.now(timezone.utc) - datetime.fromisoformat(w["updated_at"])).total_seconds() < 20]
+                    recent = [w for w in self.store.list("workers") if (datetime.now(UTC) - datetime.fromisoformat(w["updated_at"])).total_seconds() < 20]
                     own = fingerprint(self.configuration.infrastructure)
                     if recent and not any(w["infrastructure"] == own for w in recent):
                         raise RuntimeError("Worker configuration has not been restarted")
@@ -328,7 +342,7 @@ class DashboardService:
             (datetime.fromisoformat(r["completed_at"]) - datetime.fromisoformat(r["created_at"])).total_seconds()
             for r in rows if r["status"] == "completed" and r.get("completed_at")
         ]
-        dates = [(datetime.now(timezone.utc).date() - timedelta(days=i)).isoformat() for i in reversed(range(14))]
+        dates = [(datetime.now(UTC).date() - timedelta(days=i)).isoformat() for i in reversed(range(14))]
         services = Counter((r.get("report") or {}).get("likely_service") or "Unknown" for r in rows if r["status"] == "completed")
         return Overview(
             total=len(rows), completed=sum(r["status"] == "completed" for r in rows),

@@ -10,12 +10,14 @@ from .code_graph import GraphContext
 from .deployment import DeploymentContext, SourceResolution
 from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
 from .logs import IncidentContext
+from .runtime import FailureLayer
 
 
 class Hypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rank: int = Field(ge=1, le=3)
+    failure_layer: FailureLayer = "unknown"
     title: str
     explanation: str
     evidence: list[str]
@@ -58,6 +60,7 @@ class DiagnosisReport(BaseModel):
     fallback_reason: str | None = None
     graph_context: GraphContext | None = None
     retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
+    runtime_collection: list[dict] = Field(default_factory=list)
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
     validation_errors: list[AnalysisValidationError] = Field(default_factory=list)

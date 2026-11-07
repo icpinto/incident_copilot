@@ -81,6 +81,9 @@ is available at http://localhost:8233.
 
 ### Standalone Docker log collector
 
+The upgraded collector also supports [bounded runtime evidence](docs/runtime-evidence.md):
+passive logs, resources and dependency health, with optional Prometheus and Tempo adapters.
+
 To collect errors from other Compose projects on the **same Docker host**, set a
 shared `IC_LOG_INGEST_TOKEN` in the Incident Copilot `.env` and recreate its API
 container. Find its network with `docker inspect incident-copilot-api --format

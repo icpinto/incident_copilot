@@ -82,6 +82,8 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
             "evidence",
             "confidence",
             "next_checks",
+            "failure_layer",
+            "evidence_refs",
         }
         assert item["properties"]["confidence"]["maximum"] == 1
         assert '"hypotheses"' in prompt and "rank (integer)" in prompt

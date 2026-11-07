@@ -26,7 +26,7 @@ The default and maximum budgets are:
 
 `IC_AGENTIC_MAX_ROUNDS`, `IC_AGENTIC_MAX_TOOL_REQUESTS`, and `IC_AGENTIC_TIMEOUT_SECONDS` can lower the configurable budgets. The controller stops when the model finishes, a budget is exhausted, requests repeat, or retrieval adds no evidence. Clipped content is marked; the model can request a subsequent bounded range while budget remains.
 
-Retrieval is read-only. It does not execute tests, change source, deploy code, or query live telemetry. Runtime clients and credentials stay outside graph checkpoints. Requests are constrained to the trusted indexed repository, and a changed or unverified source snapshot prevents continued retrieval. Reports retain graph completeness and parser limitations. A valid source citation supports an observation about code; it cannot prove runtime execution or causation.
+Retrieval is read-only. It does not execute tests, change source, or deploy code. Deployment-linked incidents can also retrieve [bounded runtime evidence](runtime-evidence.md) through the Docker collector. Runtime clients and credentials stay outside graph checkpoints. Source requests remain constrained to the trusted indexed repository; a changed or unverified source snapshot disables source retrieval. Runtime-enabled incidents can continue with runtime evidence and an explicit source gap. Reports retain graph completeness and parser limitations. A valid citation identifies an observation; it cannot prove causation.
 
 ## Recovery and reporting
 

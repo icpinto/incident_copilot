@@ -17,6 +17,7 @@ from incident_copilot.schemas.deployment import (
     ReleaseMetadata,
     RuntimeConfiguration,
 )
+from incident_copilot.schemas.runtime import RuntimeCapability, RuntimeResult
 
 from .deployments import context, observe
 from .issue_capture import prepare_upload
@@ -48,6 +49,8 @@ class Inventory(BaseModel):
     collector_id: str = Field(default="legacy", min_length=1, max_length=128)
     projects: dict[str, list[str]] = Field(max_length=200)
     containers: list[ContainerObservation] = Field(default_factory=list, max_length=2000)
+    runtime_version: int | None = None
+    runtime_capabilities: list[RuntimeCapability] = Field(default_factory=list, max_length=5)
 
 
 class SourceMapping(BaseModel):
@@ -55,6 +58,9 @@ class SourceMapping(BaseModel):
     enabled: bool = False
     environment: str = Field(default="unknown", min_length=1, max_length=120)
     versioned_services: list[str] = Field(default_factory=list, max_length=200)
+    runtime_enabled: bool = True
+    runtime_dependencies: dict[str, list[str]] = Field(default_factory=dict, max_length=200)
+    telemetry_profile: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
 
 
 class LogBatch(ContainerObservation):
@@ -66,7 +72,12 @@ class LogBatch(ContainerObservation):
 def sources(service: DashboardService) -> list[dict]:
     with service.store.connection() as db:
         rows = db.execute("SELECT * FROM collector_sources ORDER BY collector_id,project").fetchall()
+        hosts = {row["collector_id"]: {**json.loads(row["payload"]), "updated_at": row["updated_at"]}
+                 for row in db.execute("SELECT * FROM runtime_collectors")}
     return [{**dict(row), "services": json.loads(row["services"]),
+             "runtime_enabled": bool(row["runtime_enabled"]),
+             "runtime_dependencies": json.loads(row["runtime_dependencies"]),
+             "runtime_collector": hosts.get(row["collector_id"]),
              "versioned_services": json.loads(row["versioned_services"]), "enabled": bool(row["enabled"])}
             for row in rows]
 
@@ -80,6 +91,10 @@ def list_sources(request: Request):
 def map_source(project: str, mapping: SourceMapping, request: Request,
                collector_id: str = Query(default="legacy", min_length=1, max_length=128)):
     service = request.app.state.dashboard
+    if any(not name or len(name) > 120 or len(dependencies) > 4 or
+           any(not dependency or len(dependency) > 120 for dependency in dependencies)
+           for name, dependencies in mapping.runtime_dependencies.items()):
+        raise HTTPException(422, "Each runtime service supports up to four named dependencies")
     if mapping.enabled and not mapping.repository_id:
         raise HTTPException(422, "Choose a repository before enabling collection")
     if any(not name or len(name) > 120 for name in mapping.versioned_services):
@@ -91,12 +106,27 @@ def map_source(project: str, mapping: SourceMapping, request: Request,
         if mapping.enabled and not mapping.versioned_services and not repository_root(repo):
             raise HTTPException(422, "Sync this repository before enabling collection")
     with service.store.connection() as db:
+        previous = db.execute("SELECT * FROM collector_sources WHERE collector_id=? AND project=?", (collector_id, project)).fetchone()
+        if previous:
+            # Older clients retain the runtime policy when saving other source settings.
+            if "runtime_enabled" not in mapping.model_fields_set:
+                mapping.runtime_enabled = bool(previous["runtime_enabled"])
+            if "runtime_dependencies" not in mapping.model_fields_set:
+                mapping.runtime_dependencies = json.loads(previous["runtime_dependencies"])
+            if "telemetry_profile" not in mapping.model_fields_set:
+                mapping.telemetry_profile = previous["telemetry_profile"]
         changed = db.execute("""UPDATE collector_sources SET repository_id=?, enabled=?,
-            environment=?, versioned_services=? WHERE collector_id=? AND project=?""",
+            environment=?, versioned_services=?,runtime_enabled=?,runtime_dependencies=?,telemetry_profile=?
+            WHERE collector_id=? AND project=?""",
             (mapping.repository_id, int(mapping.enabled), mapping.environment.strip() or "unknown",
-             json.dumps(sorted(set(mapping.versioned_services))), collector_id, project))
+             json.dumps(sorted(set(mapping.versioned_services))), int(mapping.runtime_enabled),
+             json.dumps(mapping.runtime_dependencies), mapping.telemetry_profile, collector_id, project))
         if not changed.rowcount:
             raise HTTPException(404, "Compose project has not been discovered")
+        if not mapping.enabled or not mapping.runtime_enabled:
+            db.execute("""UPDATE runtime_requests SET state='canceled',lease=NULL
+                WHERE collector_id=? AND state IN ('queued','leased') AND json_extract(payload,'$.scope.project')=?""",
+                (collector_id, project))
     return next(row for row in sources(service) if row["project"] == project and row["collector_id"] == collector_id)
 
 
@@ -109,6 +139,11 @@ def inventory(payload: Inventory, service: Annotated[DashboardService, Depends(c
     now = utcnow()
     try:
         with service.store.connection() as db:
+            if payload.runtime_version == 1:
+                from .runtime_evidence import register
+                # Preserve the helper's live heartbeat when inventory refreshes.
+                if not db.execute("SELECT 1 FROM runtime_collectors WHERE collector_id=?", (payload.collector_id,)).fetchone():
+                    register(db, payload.collector_id, payload.runtime_capabilities)
             for project, names in payload.projects.items():
                 db.execute("""INSERT INTO collector_sources(collector_id,project,services,last_seen)
                     VALUES (?,?,?,?) ON CONFLICT(collector_id,project) DO UPDATE
@@ -121,6 +156,57 @@ def inventory(payload: Inventory, service: Annotated[DashboardService, Depends(c
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     return {"projects": len(payload.projects)}
+
+
+class RuntimeClaim(BaseModel):
+    model_config = {"extra": "forbid"}
+    collector_id: str = Field(min_length=1, max_length=128)
+    capabilities: list[RuntimeCapability] = Field(max_length=5)
+    helper: dict = Field(default_factory=dict)
+
+
+class RuntimeDelivery(BaseModel):
+    model_config = {"extra": "forbid"}
+    collector_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=1, max_length=128)
+    lease: str = Field(min_length=1, max_length=128)
+    result: RuntimeResult
+
+
+@router.post("/collector/runtime/claim")
+async def runtime_claim(request: Request, service: Annotated[DashboardService, Depends(collector)]):
+    from .runtime_evidence import claim
+    try:
+        payload = RuntimeClaim.model_validate(await bounded_body(request, 8192))
+    except ValueError:
+        raise HTTPException(422, "Invalid runtime claim") from None
+    return claim(service.store, payload.collector_id, payload.capabilities, payload.helper)
+
+
+async def bounded_body(request, maximum):
+    from pydantic import ValidationError
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > maximum:
+            raise HTTPException(413, "Runtime request is too large")
+    try:
+        return json.loads(data)
+    except (ValueError, ValidationError):
+        raise HTTPException(422, "Invalid runtime request") from None
+
+
+@router.post("/collector/runtime/results")
+async def runtime_results(request: Request, service: Annotated[DashboardService, Depends(collector)]):
+    from pydantic import ValidationError
+
+    from .runtime_evidence import accept
+    try:
+        payload = RuntimeDelivery.model_validate(await bounded_body(request, 12288))
+        return accept(service.store, payload.collector_id, payload.request_id, payload.lease,
+                      payload.result, service.configuration.redact)
+    except (ValueError, ValidationError):
+        raise HTTPException(422, "Invalid, expired, or out-of-scope runtime result") from None
 
 
 @router.get("/deployments", response_model=DeploymentPage)

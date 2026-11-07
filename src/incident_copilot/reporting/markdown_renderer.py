@@ -156,6 +156,7 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         parts.extend(
             [
                 f"### {h.rank}. {h.title}",
+                f"- Suspected failure layer: {h.failure_layer}",
                 h.explanation,
                 "",
                 (f"- Diagnosis confidence: {h.confidence:.0%} (calibrated)"
@@ -175,7 +176,7 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
     if report.retrieved_evidence:
         parts.extend(["## Retrieved Evidence", ""])
         for item in report.retrieved_evidence:
-            location = item.file_path or item.repository
+            location = item.file_path or item.repository or (f"{item.runtime.collector_id}/{item.runtime.project}/{item.runtime.service}" if item.runtime else "unknown")
             if item.line_start is not None:
                 location += f":{item.line_start}"
                 if item.line_end is not None:
@@ -188,6 +189,10 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
             ])
             if item.request_id:
                 parts.append(f"- Request: `{item.request_id}`")
+            if item.runtime:
+                parts.extend([f"- Environment: {item.runtime.environment}",
+                    f"- Requested window: {item.runtime.requested_start.isoformat()} to {item.runtime.requested_end.isoformat()}",
+                    f"- Observed at: {item.runtime.observed_at.isoformat()}; coverage: {item.runtime.coverage}"])
             if item.limitations:
                 parts.append(f"- Limitations: {'; '.join(item.limitations)}")
             if item.truncated:
@@ -196,6 +201,10 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
             content = item.content or (json.dumps(item.data, ensure_ascii=False, indent=2) if item.data else "")
             fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", content)), default=0) + 1)
             parts.extend(["", fence, content, fence, ""])
+    if report.runtime_collection:
+        parts.extend(["## Runtime Collection", ""])
+        for result in report.runtime_collection:
+            parts.append(f"- {result['capability']}: {result['status']}; {result.get('reason') or ''} ({result.get('duration_ms', 0)} ms)")
     if report.investigation_events:
         parts.extend(["## Investigation Actions", ""])
         for event in report.investigation_events:

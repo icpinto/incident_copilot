@@ -11,6 +11,7 @@ services:
       VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION: "true"
     volumes:
       - ./collector/vector.yaml:/etc/vector/vector.yaml:ro
+      - ${IC_RUNTIME_CONFIG_PATH:-./collector/runtime.example.json}:/etc/vector/runtime.json:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - collector-data:/var/lib/vector
     networks:

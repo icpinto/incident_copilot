@@ -14,8 +14,8 @@ from incident_copilot.indexing.service_mapper import build_service_map
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.code_graph import GraphPreparation
-from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.deployment import analysis_configuration
+from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
 
 from .config import Configuration, control_path
@@ -99,15 +99,21 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             store.update("incidents", incident_id, {"source_resolution": {
                 "status": "unavailable", "requested_commit": (inputs.get("deployment_context") or {}).get("revision"),
                 "analyzed_commit": None, "reason": reason}, "error": reason})
-            raise ApplicationError(reason, type="DeployedSourceUnavailable",
-                                   non_retryable=not getattr(error, "transient", False)) from None
-    if inputs.get("version_linked") and run.get("source_resolution", {}).get("status") != "matched":
+            if run.get("runtime_scope") and isinstance(error, SyncFailure):
+                inputs.update(source_unavailable=True, repo_root=None)
+                run["source_resolution"] = {"status": "unavailable", "requested_commit":
+                    (inputs.get("deployment_context") or {}).get("revision"), "analyzed_commit": None, "reason": reason}
+                store.update("incidents", incident_id, {"input": inputs, "error": None})
+            else:
+                raise ApplicationError(reason, type="DeployedSourceUnavailable",
+                                       non_retryable=not getattr(error, "transient", False)) from None
+    if inputs.get("version_linked") and not inputs.get("source_unavailable") and run.get("source_resolution", {}).get("status") != "matched":
         raise ValueError("Deployed source must be resolved before source analysis.")
-    root = Path(inputs["repo_root"])
+    root = Path(inputs["repo_root"]) if inputs.get("repo_root") else Path(run["index_db_path"]).parent
     compose = Path(inputs["compose_path"]) if inputs.get("compose_path") else None
     if compose and not compose.is_absolute():
         compose = root / compose
-    if inputs.get("version_linked"):
+    if inputs.get("version_linked") and not inputs.get("source_unavailable"):
         from incident_copilot.tools.git_local import clean_revision
         if await asyncio.to_thread(clean_revision, root) != inputs["repository_snapshot"]["revision"]:
             from temporalio.exceptions import ApplicationError
@@ -115,11 +121,40 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             store.update("incidents", incident_id, {"source_resolution": {
                 "status": "unavailable", "requested_commit": (inputs.get("deployment_context") or {}).get("revision"),
                 "analyzed_commit": None, "reason": reason}, "error": reason})
-            raise ApplicationError(reason, type="DeployedSourceUnavailable", non_retryable=True)
-    if stage == "indexing":
+            if run.get("runtime_scope"):
+                inputs["source_unavailable"] = True
+                run["source_resolution"] = {"status": "unavailable", "requested_commit":
+                    (inputs.get("deployment_context") or {}).get("revision"), "analyzed_commit": None, "reason": reason}
+                store.update("incidents", incident_id, {"input": inputs, "error": None})
+            else:
+                raise ApplicationError(reason, type="DeployedSourceUnavailable", non_retryable=True)
+    if stage == "indexing" and not inputs.get("source_unavailable"):
         validation = await asyncio.to_thread(validate_repository, str(root), str(compose) if compose else None)
         if not validation["valid"]:
-            raise ValueError(validation["message"])
+            if not run.get("runtime_scope"):
+                raise ValueError(validation["message"])
+            inputs.update(source_unavailable=True, repo_root=None)
+            run["source_resolution"] = {"status": "unavailable", "requested_commit":
+                (run.get("deployment_context") or {}).get("revision"), "analyzed_commit": None,
+                "reason": validation["message"]}
+            store.update("incidents", incident_id, {"input": inputs, "source_resolution": run["source_resolution"], "error": None})
+    if inputs.get("source_unavailable"):
+        # Source preparation is unavailable, but parsing and runtime observations remain useful.
+        from incident_copilot.correlation.log_parser import parse_logs
+        parsed = parse_logs(inputs["log_text"])
+        context = parsed.incident_context
+        if context and context.groups:
+            eligible = [g for g in context.groups if g.error_bearing] or context.groups
+            hinted = [g for g in eligible if inputs.get("user_hint_service") in g.services]
+            context.primary_group_id = (hinted or eligible)[0].id
+            context.selection_reason = "Source unavailable; selected earliest eligible observed error group."
+            context.limitations.append("Matching source unavailable; runtime-only diagnosis.")
+        evidence.update(parsed_log=parsed.model_dump(), candidates=[], deep_analysis={}, graph_context=None)
+        if stage != "reasoning":
+            event["completed_at"] = utcnow()
+            store.update("incidents", incident_id, {"evidence": evidence, "timeline": timeline, "updated_at": utcnow()})
+            return event
+    if stage == "indexing":
         if inputs.get("repository_snapshot"):
             from .repository_sync import incident_index
             evidence["index_summary"] = await asyncio.to_thread(incident_index, inputs, Path(run["index_db_path"]))
@@ -170,6 +205,9 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
     elif stage == "reasoning":
         from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 
+        from .runtime_evidence import RuntimeEvidenceClient, effective_scope
+        runtime_client = RuntimeEvidenceClient(store, incident_id) if run.get("runtime_scope") else None
+
         async def progress(update: dict) -> None:
             # This activity owns the evidence snapshot throughout reasoning. Updating
             # it here also prevents the final stage write from losing streamed data.
@@ -180,15 +218,33 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             store.update("incidents", incident_id, {"evidence": redacted, "updated_at": utcnow()})
 
         async with reasoning_heartbeat(activity) as heartbeat:
+            if runtime_client:
+                evidence.update(await runtime_client.baseline())
+                with store.connection() as db:
+                    scope = effective_scope(db, run).model_dump(mode="json")
+                context = evidence.get("parsed_log", {}).get("incident_context") or {}
+                primary = next((group for group in context.get("groups", []) if group["id"] == context.get("primary_group_id")), None)
+                if primary and scope.get("trigger_event_id") and scope["trigger_event_id"] not in primary["event_ids"]:
+                    # Automatic evidence belongs to its triggering group, not another group selected by source ranking.
+                    evidence["runtime_evidence"] = []
+                    evidence["runtime_collection"] = [{"id": "primary-group", "capability": "runtime", "status": "unavailable",
+                        "reason": "Runtime snapshot belongs to another log group; excluded from diagnosis.", "duration_ms": 0}]
+                    runtime_client, scope = None, None
+            else:
+                scope = None
             state = await run_diagnosis_graph({
                 "incident_id": incident_id, "parsed_log": evidence.get("parsed_log", {}),
                 "candidates": evidence.get("candidates", []), "deep_analysis": evidence.get("deep_analysis", {}),
                 "candidate_limit": config.top_k_candidates,
                 "graph_context": evidence.get("graph_context"),
                 "runtime_config": analysis_configuration((run.get("deployment_context") or {}).get("runtime_config")),
+                "runtime_evidence": evidence.get("runtime_evidence", []),
+                "runtime_collection": evidence.get("runtime_collection", []),
+                "runtime_scope": scope, "source_unavailable": bool(inputs.get("source_unavailable")),
             }, config, runtime_context=InvestigationRuntime(
                 repo_root=root.resolve(), index_db_path=Path(run["index_db_path"]),
                 execution_id=incident_id, progress=progress, heartbeat=heartbeat,
+                runtime_client=runtime_client,
             ))
         await progress({key: state[key] for key in (
             "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors", "guardrails",

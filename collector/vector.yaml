@@ -1,6 +1,15 @@
 data_dir: /var/lib/vector
 
 sources:
+  runtime:
+    type: exec
+    command: [python3, /etc/vector/runtime.py]
+    mode: streaming
+    include_stderr: false
+    maximum_buffer_size_bytes: 16384
+    streaming:
+      respawn_on_exit: true
+      respawn_interval_secs: 5
   docker:
     type: docker_logs
     auto_partial_merge: true
@@ -13,6 +22,10 @@ sources:
       exec_interval_secs: 60
 
 transforms:
+  runtime_payload:
+    type: remap
+    inputs: [runtime]
+    source: '. = parse_json!(.message)'
   compose_logs:
     type: remap
     inputs: [docker]
@@ -73,6 +86,21 @@ transforms:
     source: '. = parse_json!(.message)'
 
 sinks:
+  runtime_api:
+    type: http
+    inputs: [runtime_payload]
+    uri: http://api:8080/api/collector/runtime/results
+    method: post
+    encoding: { codec: json }
+    framing: { method: bytes }
+    batch: { max_events: 1 }
+    buffer: { type: disk, max_size: 268435488 }
+    healthcheck: { enabled: false }
+    request:
+      concurrency: 2
+      headers:
+        Authorization: "Bearer ${IC_LOG_INGEST_TOKEN}"
+        Content-Type: application/json
   inventory_api:
     type: http
     inputs: [inventory_payload]

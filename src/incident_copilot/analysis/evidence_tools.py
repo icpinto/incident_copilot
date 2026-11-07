@@ -58,6 +58,8 @@ def _symbol_key(symbol: dict[str, Any]) -> str:
 
 def _evidence_id(item: EvidenceItem) -> str:
     provenance = item.model_dump(exclude={"id", "request_id"})
+    if provenance.get("runtime") is None:
+        provenance.pop("runtime", None)
     if item.kind == "code_graph":
         # Provider request timing is operational metadata, not new source evidence.
         provenance["data"].pop("retrieval_ms", None)
@@ -393,6 +395,8 @@ class EvidenceTools:
 
     async def execute(self, request: EvidenceRequest, request_id: str) -> ToolOutcome:
         started = time.monotonic()
+        if request.tool == "get_runtime_evidence":
+            return ToolOutcome(request_id=request_id, tool=request.tool, status="unavailable", reason="runtime_context_missing")
         try:
             await asyncio.to_thread(self.validate_source)
             graph_context = None

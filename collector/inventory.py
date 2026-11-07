@@ -97,6 +97,8 @@ def inventory(fetch=docker_get):
                         "image_ref": container.get("Image"), "image_id": image_id,
                         "repo_digests": images.get(image_id, [])}, "runtime_config": configuration})
     return {"collector_id": os.environ.get("IC_COLLECTOR_ID", "legacy"),
+            "runtime_version": 1,
+            "runtime_capabilities": ["logs", "resources", "dependencies", "traces", "latency"],
             "projects": {name: sorted(services) for name, services in projects.items()}, "containers": containers}
 
 

@@ -6,6 +6,10 @@ repository profile has synced a newer branch revision. GitHub and local Git
 profiles are supported. Image tags, branch names, and arrival time are never used
 to guess a source commit.
 
+New incidents with [runtime evidence](runtime-evidence.md) enabled can continue with
+runtime-only diagnosis if matching source cannot be prepared. The source-resolution
+gap remains visible and source tools stay disabled; another commit is never substituted.
+
 ## Label application images
 
 Build your image from a clean, committed source tree. Set these labels in the

@@ -11,7 +11,7 @@ export function Investigation({ summary, evidence, events }: {
 }) {
   if (!summary && !evidence.length && !events.length) return null;
   const knownIds = new Set(evidence.map(item => item.id));
-  return <Panel title="Evidence investigation" subtitle="Source findings support possible explanations; runtime observations are needed to establish execution.">
+  return <Panel title="Evidence investigation" subtitle="Citations identify collected observations. Source relationships and runtime association alone do not establish causation.">
     {summary && <>
       <dl className="investigation-summary">
         <div><dt>Status</dt><dd>{summary.incomplete ? 'Incomplete' : 'Complete'}</dd></div>
@@ -30,9 +30,9 @@ export function Investigation({ summary, evidence, events }: {
     </li>)}</ol></details>}
     {!!evidence.length && <div className="retrieved-evidence"><h3>Retrieved evidence ({evidence.length})</h3>{evidence.map(item => <article className="retrieved-evidence-item" id={evidenceAnchor(item.id)} key={item.id}>
       <details><summary><code>{item.id}</code> {item.file_path || readable(item.kind)}{item.line_start != null && `:${item.line_start}${item.line_end != null ? `–${item.line_end}` : ''}`}</summary>
-        <p className="mono subtle">Revision: {item.revision || 'unavailable'}</p>
+        {item.runtime ? <><p>{item.runtime.collector_id} / {item.runtime.project} / {item.runtime.service} · {item.runtime.environment}</p><p>Requested: {item.runtime.requested_start} – {item.runtime.requested_end}</p><p>Observed: {item.runtime.observed_at} · Coverage: {item.runtime.coverage}</p></> : <p className="mono subtle">Revision: {item.revision || 'unavailable'}</p>}
         {!!item.limitations.length && <p>Limitations: {item.limitations.join('; ')}</p>}
-        {item.truncated && <p>Content clipped. Additional source may remain unread.</p>}
+        {item.truncated && <p>Content clipped. Additional evidence may remain unread.</p>}
         <pre className="code-block"><code>{item.content || JSON.stringify(item.data, null, 2)}</code></pre>
       </details>
     </article>)}</div>}

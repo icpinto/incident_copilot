@@ -104,6 +104,8 @@ class IncidentEvidence(BaseModel):
     graph_context: GraphContext | None = None
     graph_preparation: GraphPreparation | None = None
     retrieved_evidence: list[EvidenceItem] = Field(default_factory=list)
+    runtime_collection: list[dict] = Field(default_factory=list)
+    runtime_evidence: list[EvidenceItem] = Field(default_factory=list)
     investigation: InvestigationSummary | None = None
     investigation_events: list[InvestigationEvent] = Field(default_factory=list)
     validation_errors: list[AnalysisValidationError] = Field(default_factory=list)

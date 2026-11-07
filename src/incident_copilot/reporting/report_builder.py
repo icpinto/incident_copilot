@@ -22,6 +22,7 @@ def build_report(graph_state: dict) -> DiagnosisReport:
         guardrails=graph_state.get("guardrails"),
         graph_context=graph_state.get("graph_context"),
         retrieved_evidence=graph_state.get("retrieved_evidence", []),
+        runtime_collection=graph_state.get("runtime_collection", []),
         investigation=graph_state.get("investigation"),
         investigation_events=graph_state.get("investigation_events", []),
     )

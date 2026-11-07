@@ -2,6 +2,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 class SourceSnapshotUnverifiedError(ValueError):
@@ -15,3 +16,4 @@ class InvestigationRuntime:
     execution_id: str
     progress: Callable[[dict], Awaitable[None]] | None = None
     heartbeat: Callable[[], None] | None = None
+    runtime_client: Any = None

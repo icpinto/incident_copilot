@@ -51,6 +51,8 @@ class ControlStore:
             db.executescript(SCHEMA)
             from .deployments import SCHEMA as DEPLOYMENT_SCHEMA
             db.executescript(DEPLOYMENT_SCHEMA)
+            from .runtime_evidence import initialize as initialize_runtime
+            initialize_runtime(db)
             # Additive, idempotent migration; the original table remains intact.
             db.execute("""INSERT OR IGNORE INTO collector_sources
                 (collector_id,project,services,repository_id,enabled,last_seen)
@@ -243,6 +245,8 @@ class ControlStore:
             elif original_batch_id:
                 db.execute("INSERT INTO incident_error_batches VALUES (?,?)", (record["id"], original_batch_id))
                 record.update(error_batch_id=original_batch_id, error_tracking_status="duplicate")
+            from .runtime_evidence import create_baseline
+            create_baseline(db, record, capture)
             self._put(db, "incidents", record["id"], record)
         return True
 

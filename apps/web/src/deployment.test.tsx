@@ -52,7 +52,7 @@ it('saves environment and per-service enablement for the correct collector', asy
   fireEvent.change(await screen.findByLabelText('Environment for app'), { target: { value: 'production' } });
   await userEvent.click(screen.getByRole('checkbox', { name: 'api' }));
   await userEvent.click(screen.getByRole('button', { name: 'Save source' }));
-  await waitFor(() => expect(writes).toEqual([{ url: '/api/log-sources/app?collector_id=host-a', body: { repository_id: 'repo', enabled: true, environment: 'production', versioned_services: ['api'] } }]));
+  await waitFor(() => expect(writes).toEqual([{ url: '/api/log-sources/app?collector_id=host-a', body: { repository_id: 'repo', enabled: true, environment: 'production', versioned_services: ['api'], runtime_enabled: true, runtime_dependencies: {}, telemetry_profile: null } }]));
   expect(screen.getByRole('checkbox', { name: 'db' })).not.toBeChecked();
   expect(screen.getByText(/First observed/)).toBeInTheDocument();
 });

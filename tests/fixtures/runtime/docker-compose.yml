@@ -1,0 +1,43 @@
+name: runtime-evidence-fixture
+services:
+  api:
+    image: python:3.12-alpine
+    command: [python, /fixture/app.py]
+    environment:
+      ROLE: api
+      DEPENDENCY_URL: http://db:8080
+      TEMPO_URL: http://tempo:4318/v1/traces
+    volumes:
+      - ./app.py:/fixture/app.py:ro
+    ports:
+      - 127.0.0.1:18081:8080
+  db:
+    image: python:3.12-alpine
+    command: [python, /fixture/app.py]
+    environment:
+      ROLE: db
+    mem_limit: 64m
+    volumes:
+      - ./app.py:/fixture/app.py:ro
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/health',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 1
+    ports:
+      - 127.0.0.1:18082:8080
+  prometheus:
+    profiles: [telemetry]
+    image: prom/prometheus:v3.7.3
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - 127.0.0.1:19090:9090
+  tempo:
+    profiles: [telemetry]
+    image: grafana/tempo:2.9.0
+    command: [-config.file=/etc/tempo.yaml]
+    volumes:
+      - ./tempo.yml:/etc/tempo.yaml:ro
+    ports:
+      - 127.0.0.1:13200:3200
