@@ -37,10 +37,6 @@ class ControlStore:
                     created_at TEXT NOT NULL, payload TEXT NOT NULL);
                 CREATE UNIQUE INDEX IF NOT EXISTS repository_active_sync
                     ON repository_syncs(repository_id) WHERE status IN ('queued','running');
-                CREATE TABLE IF NOT EXISTS log_sources (
-                    project TEXT PRIMARY KEY, services TEXT NOT NULL DEFAULT '[]',
-                    repository_id TEXT, enabled INTEGER NOT NULL DEFAULT 0,
-                    last_seen TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS log_ingest_events (
                     event_id TEXT PRIMARY KEY, project TEXT NOT NULL, received_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS log_investigation_cooldowns (
@@ -53,10 +49,10 @@ class ControlStore:
             db.executescript(DEPLOYMENT_SCHEMA)
             from .runtime_evidence import initialize as initialize_runtime
             initialize_runtime(db)
-            # Additive, idempotent migration; the original table remains intact.
-            db.execute("""INSERT OR IGNORE INTO collector_sources
-                (collector_id,project,services,repository_id,enabled,last_seen)
-                SELECT 'legacy',project,services,repository_id,enabled,last_seen FROM log_sources""")
+            # Retire obsolete source mappings once; historical evidence stays intact.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='log_sources'").fetchone():
+                db.execute("DELETE FROM collector_sources WHERE collector_id='legacy'")
+                db.execute("DROP TABLE log_sources")
             db.execute("INSERT OR IGNORE INTO configuration(key,payload) VALUES ('error_tracking',?)",
                        (json.dumps({"schema_version": 1, "tracking_since": utcnow()}),))
 

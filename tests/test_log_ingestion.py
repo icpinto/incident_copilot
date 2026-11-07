@@ -19,15 +19,23 @@ def test_collector_mapping_retry_and_cooldown(tmp_path, monkeypatch):
 
     monkeypatch.setattr(dashboard_api, "reconciliation_loop", no_background)
     headers = {"Authorization": "Bearer collector-test-token"}
-    batch = {"project": "payments", "service": "api", "container_id": "abc",
+    inventory = {"collector_id": "payments-host", "projects": {"payments": ["api"]}}
+    batch = {"collector_id": "payments-host", "project": "payments", "service": "api", "container_id": "abc",
              "batch_id": "window-1", "log_text": "ValueError: payment failed"}
     with TestClient(app) as client:
-        assert client.post("/api/collector/inventory", json={"projects": {"payments": ["api"]}}).status_code == 401
-        assert client.post("/api/collector/inventory", json={"projects": {"payments": ["api"]}}, headers=headers).status_code == 202
+        assert client.post("/api/collector/inventory", json=inventory).status_code == 401
+        for payload, url in ((inventory, "/api/collector/inventory"), (batch, "/api/collector/logs")):
+            without_identity = {name: value for name, value in payload.items() if name != "collector_id"}
+            assert client.post(url, json=without_identity, headers=headers).status_code == 422
+            assert client.post(url, json=payload | {"collector_id": ""}, headers=headers).status_code == 422
+        assert client.get("/api/log-sources").json() == []
+        assert client.post("/api/collector/inventory", json=inventory, headers=headers).status_code == 202
         assert client.post("/api/collector/logs", json=batch, headers=headers).json()["accepted"] == 0
         repo = client.post("/api/repositories", json={"name": "Payments", "repo_root": str(tmp_path)}).json()
         mapping = {"repository_id": repo["id"], "enabled": True}
-        assert client.put("/api/log-sources/payments", json=mapping).status_code == 200
+        assert client.put("/api/log-sources/payments", json=mapping).status_code == 422
+        assert client.put("/api/log-sources/payments?collector_id=", json=mapping).status_code == 422
+        assert client.put("/api/log-sources/payments?collector_id=payments-host", json=mapping).status_code == 200
         first = client.post("/api/collector/logs", json=batch, headers=headers)
         assert first.status_code == 202 and first.json() == {"accepted": 1, "investigations": 1}
         assert client.post("/api/collector/logs", json=batch, headers=headers).json()["accepted"] == 0

@@ -17,12 +17,12 @@ function SourceRow({ source, repositories, refresh }: { source: Source; reposito
   const [dependencies, setDependencies] = useState(source.runtime_dependencies || {});
   const [profile, setProfile] = useState(source.telemetry_profile || '');
   const mutation = useMutation({
-    mutationFn: () => api<Source>(`/log-sources/${encodeURIComponent(source.project)}?collector_id=${encodeURIComponent(source.collector_id || 'legacy')}`,
+    mutationFn: () => api<Source>(`/log-sources/${encodeURIComponent(source.project)}?collector_id=${encodeURIComponent(source.collector_id)}`,
       json('PUT', { repository_id: repositoryId || null, enabled, environment: environment || 'unknown', versioned_services: versionedServices, runtime_enabled: runtimeEnabled, runtime_dependencies: dependencies, telemetry_profile: profile || null })),
     onSuccess: refresh,
   });
   return <article className="repository-card">
-    <h2>{source.project}</h2><small>Collector: {source.collector_id || 'legacy'}</small>
+    <h2>{source.project}</h2><small>Collector: {source.collector_id}</small>
     <p>Services: {source.services.length ? source.services.join(', ') : 'None running'}</p>
     <p>Last seen: {new Date(source.last_seen).toLocaleString()}</p>
     <label>Repository
@@ -38,7 +38,7 @@ function SourceRow({ source, repositories, refresh }: { source: Source; reposito
     <label><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Collect errors</label>
     <fieldset className="version-services"><legend>Runtime evidence</legend>
       <label><input type="checkbox" checked={runtimeEnabled} onChange={event => setRuntimeEnabled(event.target.checked)} /> Retrieve passive runtime evidence</label>
-      <p>{source.runtime_collector ? `Capabilities: ${source.runtime_collector.capabilities.join(', ')}` : 'Runtime retrieval unsupported: upgrade the collector.'}</p>
+      <p>{source.runtime_collector ? `Capabilities: ${source.runtime_collector.capabilities.join(', ')}` : 'Waiting for the runtime helper to register.'}</p>
       {source.runtime_collector && <p>Helper last seen: {new Date(source.runtime_collector.updated_at).toLocaleString()} · {Date.now() - new Date(source.runtime_collector.updated_at).getTime() > 60000 ? 'Stale' : source.runtime_collector.helper?.status || 'Waiting for helper'} · Sampled containers: {source.runtime_collector.helper?.sampled_containers ?? 0} · Sampling omissions: {source.runtime_collector.helper?.sampling_omissions ?? 0}</p>}
       <label>Telemetry profile<input aria-label={`Telemetry profile for ${source.project}`} value={profile} maxLength={120} onChange={event => setProfile(event.target.value)} /></label>
       <p>Choose up to four dependencies per service. Traces can link additional mapped services within the query limit.</p>
@@ -46,7 +46,7 @@ function SourceRow({ source, repositories, refresh }: { source: Source; reposito
     </fieldset>
     <div className="repo-actions"><button className="button primary" disabled={mutation.isPending || (enabled && !repositoryId)} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Saving…' : 'Save source'}</button></div>
     <ErrorNotice error={mutation.error} />
-    <ObservedVersions collectorId={source.collector_id || 'legacy'} project={source.project} />
+    <ObservedVersions collectorId={source.collector_id} project={source.project} />
   </article>;
 }
 

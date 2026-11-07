@@ -1,9 +1,9 @@
 # Runtime evidence
 
-The upgraded standalone collector automatically captures passive runtime evidence for new
+The standalone collector automatically captures passive runtime evidence for new
 deployment-linked incidents from enabled Log sources. It keeps Docker access inside the
-collector; API and worker containers do not need the Docker socket. Existing collectors and
-historical incidents continue to work without runtime retrieval.
+collector; API and worker containers do not need the Docker socket. Historical incidents
+retain their saved evidence without runtime retrieval.
 
 In **Log sources**, enable runtime evidence, select up to four dependencies per failing
 service, and optionally name a telemetry profile. Only configured dependencies and explicitly

@@ -48,8 +48,9 @@ packaged source even when the declared commit matches.
 
 ## Enable collection and linking
 
-1. Upgrade and restart API and worker first. The database migration is additive;
-   existing sources keep version linking disabled and environment `unknown`.
+1. Upgrade and restart API and worker first. Startup removes obsolete `legacy`
+   source mappings and the old `log_sources` table. Saved incidents, reports,
+   deployment observations, and current collector mappings are retained.
 2. Rebuild and recreate the standalone collector using
    `docker compose -f docker-compose.collector.yml up --build -d`.
 3. In **Log sources**, map the collector/project to a repository, enter an
@@ -63,9 +64,9 @@ packaged source even when the declared commit matches.
 Each collector generates a UUID in its existing `/var/lib/vector` volume. Keep the
 volume across restarts. Set `IC_COLLECTOR_ID` to override the identity with a stable,
 unique value per Docker host. Reusing an identity across hosts can confuse container
-observations. Old buffered payloads and old collector versions use the reserved
-`legacy` identity, preserving their existing mappings and retry deduplication.
-The upgraded collector appears as a new source; configure its mapping explicitly.
+observations. Inventory, log batches, and source-mapping requests require an explicit
+collector ID. Old collectors and buffered payloads without an identity are rejected;
+rebuild the collector and configure its host-specific mapping.
 
 The collector reports image references, local image IDs, and available registry
 RepoDigests. A local image ID identifies its configuration object; it is not a
@@ -124,18 +125,18 @@ deployment-event ingestion are outside this release.
 
 - `GET /api/deployments`: `repository_id`, `service`, `environment`, `collector_id`,
   and `project` filters; `page` starts at 1 and `page_size` is 1-100 (default 20).
-- `PUT /api/log-sources/{project}?collector_id=...`: adds `environment` and
-  `versioned_services`. Omitting collector ID addresses the legacy source.
+- `PUT /api/log-sources/{project}?collector_id=...`: requires the collector ID and
+  supports `environment` and `versioned_services`.
 - `POST /api/incidents`: optional `deployment_id`; source preparation remains
   asynchronous and submissions return `202`.
 - Incident responses and completed JSON/Markdown reports include
   `deployment_context` and `source_resolution`. Error occurrence events also retain
   their deployment context, even when an investigation is suppressed by cooldown.
-- Collector inventory adds `collector_id` and `containers`; each container includes
-  `project`, `service`, `container_id`, and a `release` object containing `revision`,
+- Collector inventory requires `collector_id` and supports `containers`; each
+  container includes `project`, `service`, `container_id`, and a `release` object containing `revision`,
   `version`, `source_url`, `image_ref`, `image_id`, and `repo_digests`, plus a bounded
-  `runtime_config` observation. Log batches add
-  the same collector/release metadata. All additions are optional for old clients.
+  `runtime_config` observation. Log batches require the same collector ID and
+  support the same release metadata.
 
 Issue fingerprints remain stable across releases. Investigation cooldowns include
 collector/project, environment, service, and release/artifact identity. Later image

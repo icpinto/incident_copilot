@@ -290,9 +290,16 @@ def test_persistent_collector_identity_and_inventory_image_digests(tmp_path, mon
     assert result["collector_id"] == "explicit-host"
     assert result["containers"][0]["release"]["image_id"] == "sha256:config"
     assert result["containers"][0]["release"]["repo_digests"] == ["app@sha256:manifest"]
+    monkeypatch.delenv("IC_COLLECTOR_ID")
+    with pytest.raises(RuntimeError, match="IC_COLLECTOR_ID"):
+        inventory.inventory(fetch)
+    monkeypatch.setenv("IC_COLLECTOR_ID", "")
+    with pytest.raises(RuntimeError, match="IC_COLLECTOR_ID"):
+        inventory.inventory(fetch)
 
 
 def test_collector_runtime_config_redacts_values_and_omits_mount_sources(monkeypatch):
+    monkeypatch.setenv("IC_COLLECTOR_ID", "host-a")
     root = Path(__file__).resolve().parents[1]
     spec = importlib.util.spec_from_file_location("collector_runtime_inventory", root / "collector" / "inventory.py")
     module = importlib.util.module_from_spec(spec)
@@ -383,15 +390,35 @@ def test_inventory_enrichment_does_not_reset_release_cooldown(setup, client):
     assert client.post("/api/collector/logs", json=batch(first, batch_id="next"), headers=headers).json()["investigations"] == 0
 
 
-def test_inventory_migration_retains_legacy_mapping_and_defaults(tmp_path):
+def test_inventory_upgrade_retires_legacy_sources_and_preserves_history(tmp_path):
     store = ControlStore(tmp_path / "control.db")
     with store.connection() as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='log_sources'").fetchone()
+        # Reproduce a database written before host-scoped collectors were required.
+        db.execute("""CREATE TABLE log_sources (
+            project TEXT PRIMARY KEY, services TEXT NOT NULL, repository_id TEXT,
+            enabled INTEGER NOT NULL, last_seen TEXT NOT NULL)""")
         db.execute("INSERT INTO log_sources VALUES (?,?,?,?,?)", ("legacy-app", '["api"]', "repo", 1, utcnow()))
-    migrated = ControlStore(store.path)
+        for identity in ("legacy", "host-a"):
+            db.execute("""INSERT INTO collector_sources
+                (collector_id,project,services,repository_id,enabled,last_seen,environment,versioned_services)
+                VALUES (?,'app','["api"]','repo',1,?,'production','["api"]')""", (identity, utcnow()))
+        observation = observe(db, collector_id="legacy", project="app", service="api", container_id="old",
+                              release=ReleaseMetadata(revision="a" * 40), now=utcnow())
+    incident = {"id": "saved", "status": "completed", "created_at": utcnow(), "repository_id": "repo",
+                "deployment_context": context(observation, {"environment": "production"}),
+                "report": {"summary": "Saved diagnosis"}}
+    store.put("incidents", incident["id"], incident)
+    ControlStore(store.path)
+    migrated = ControlStore(store.path)  # Cleanup is safe across repeated API/worker starts.
     with migrated.connection() as db:
-        row = db.execute("SELECT * FROM collector_sources WHERE project='legacy-app'").fetchone()
-    assert row["collector_id"] == "legacy" and row["enabled"] == 1
-    assert row["versioned_services"] == "[]" and row["environment"] == "unknown"
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='log_sources'").fetchone()
+        rows = db.execute("SELECT * FROM collector_sources").fetchall()
+        assert len(rows) == 1 and rows[0]["collector_id"] == "host-a"
+        assert rows[0]["enabled"] == 1 and rows[0]["repository_id"] == "repo"
+        assert rows[0]["versioned_services"] == '["api"]' and rows[0]["environment"] == "production"
+        assert db.execute("SELECT 1 FROM deployments WHERE id=?", (observation["deployment_id"],)).fetchone()
+    assert migrated.get("incidents", incident["id"]) == incident
 
 
 def test_atomic_ingestion_retries_after_capture_failure(setup, client, monkeypatch):

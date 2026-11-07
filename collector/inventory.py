@@ -70,6 +70,9 @@ def runtime_config(details):
 
 
 def inventory(fetch=docker_get):
+    collector_id = os.environ.get("IC_COLLECTOR_ID")
+    if not collector_id:
+        raise RuntimeError("IC_COLLECTOR_ID must be initialized by the collector entrypoint.")
     projects = {}
     containers = []
     images = {}
@@ -96,7 +99,7 @@ def inventory(fetch=docker_get):
                         "source_url": labels.get("org.opencontainers.image.source"),
                         "image_ref": container.get("Image"), "image_id": image_id,
                         "repo_digests": images.get(image_id, [])}, "runtime_config": configuration})
-    return {"collector_id": os.environ.get("IC_COLLECTOR_ID", "legacy"),
+    return {"collector_id": collector_id,
             "runtime_version": 1,
             "runtime_capabilities": ["logs", "resources", "dependencies", "traces", "latency"],
             "projects": {name: sorted(services) for name, services in projects.items()}, "containers": containers}

@@ -46,7 +46,7 @@ class ContainerObservation(BaseModel):
 
 
 class Inventory(BaseModel):
-    collector_id: str = Field(default="legacy", min_length=1, max_length=128)
+    collector_id: str = Field(min_length=1, max_length=128)
     projects: dict[str, list[str]] = Field(max_length=200)
     containers: list[ContainerObservation] = Field(default_factory=list, max_length=2000)
     runtime_version: int | None = None
@@ -64,7 +64,7 @@ class SourceMapping(BaseModel):
 
 
 class LogBatch(ContainerObservation):
-    collector_id: str = Field(default="legacy", min_length=1, max_length=128)
+    collector_id: str = Field(min_length=1, max_length=128)
     batch_id: str = Field(min_length=1, max_length=128)
     log_text: str = Field(min_length=1, max_length=256_000)
 
@@ -89,7 +89,7 @@ def list_sources(request: Request):
 
 @router.put("/log-sources/{project}")
 def map_source(project: str, mapping: SourceMapping, request: Request,
-               collector_id: str = Query(default="legacy", min_length=1, max_length=128)):
+               collector_id: str = Query(min_length=1, max_length=128)):
     service = request.app.state.dashboard
     if any(not name or len(name) > 120 or len(dependencies) > 4 or
            any(not dependency or len(dependency) > 120 for dependency in dependencies)
@@ -108,7 +108,7 @@ def map_source(project: str, mapping: SourceMapping, request: Request,
     with service.store.connection() as db:
         previous = db.execute("SELECT * FROM collector_sources WHERE collector_id=? AND project=?", (collector_id, project)).fetchone()
         if previous:
-            # Older clients retain the runtime policy when saving other source settings.
+            # Saving other source settings must preserve the existing runtime policy.
             if "runtime_enabled" not in mapping.model_fields_set:
                 mapping.runtime_enabled = bool(previous["runtime_enabled"])
             if "runtime_dependencies" not in mapping.model_fields_set:
@@ -263,12 +263,10 @@ def ingest(payload: LogBatch, service: Annotated[DashboardService, Depends(colle
     for item in capture["events"]:
         event = item["event"]
         event["deployment_context"] = deployment
-        event_key = hashlib.sha256((f"{payload.project}:{payload.container_id}:{payload.batch_id}:{event['id']}"
-            if payload.collector_id == "legacy" else json.dumps([payload.collector_id, payload.project,
-                payload.container_id, payload.batch_id, event["id"]])).encode()).hexdigest()
-        legacy_cooldown = payload.collector_id == "legacy" and not versioned and source["environment"] == "unknown" and not payload.release.revision
+        event_key = hashlib.sha256(json.dumps([payload.collector_id, payload.project,
+            payload.container_id, payload.batch_id, event["id"]]).encode()).hexdigest()
         delivery = {"event_id": event_key, "project": payload.project,
-                    "cooldown_key": item["fingerprint"] if legacy_cooldown else cooldown + ":" + item["fingerprint"]}
+                    "cooldown_key": cooldown + ":" + item["fingerprint"]}
         # Capture, deduplication, cooldown reservation, and incident creation commit
         # together. A crash cannot acknowledge an event without saving its evidence.
         service.submit(IncidentSubmission(repository_id=repository_id,
