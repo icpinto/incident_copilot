@@ -1,4 +1,5 @@
-export type DeploymentContext = { deployment_id: string; collector_id: string; project: string; service: string; container_id: string; environment: string; revision: string | null; version: string | null; source_url: string | null; image_ref: string | null; image_id: string | null; repo_digests: string[] };
+export type RuntimeConfiguration = { status: 'available' | 'unavailable'; environment: { name: string; value: string }[]; mounts: { destination: string; type: string; read_only: boolean }[]; truncated: boolean };
+export type DeploymentContext = { deployment_id: string; collector_id: string; project: string; service: string; container_id: string; environment: string; revision: string | null; version: string | null; source_url: string | null; image_ref: string | null; image_id: string | null; repo_digests: string[]; runtime_config?: RuntimeConfiguration | null };
 export type DeploymentObservation = DeploymentContext & { repository_id: string | null; first_observed: string; last_observed: string };
 export type DeploymentPage = { items: DeploymentObservation[]; total: number; page: number; page_size: number };
 export type SourceResolution = { status: 'pending' | 'matched' | 'unavailable' | 'unknown'; requested_commit: string | null; analyzed_commit: string | null; reason: string | null };

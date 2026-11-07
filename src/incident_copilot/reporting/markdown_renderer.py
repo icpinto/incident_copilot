@@ -34,6 +34,16 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                       "- Labels declare build provenance; runtime contents and causation are not verified.", ""])
         if resolution.reason:
             parts.extend([resolution.reason, ""])
+        if deployed.runtime_config:
+            config = deployed.runtime_config
+            parts.extend(["## Observed Runtime Configuration", "",
+                          "Collector observation; sensitive values are redacted and mount contents are unavailable.", ""])
+            if config.status == "available":
+                rendered = json.dumps(config.model_dump(mode="json"), indent=2)
+                fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", rendered)), default=0) + 1)
+                parts.extend([fence + "json", rendered, fence, ""])
+            else:
+                parts.extend(["Container configuration could not be inspected.", ""])
     parts.extend([f"- Diagnosis outcome: {report.diagnosis_status.replace('_', ' ').capitalize()}"])
     if report.diagnosis_reason:
         parts.append(f"- Reason: {report.diagnosis_reason}")

@@ -17,7 +17,14 @@ export function DeployedVersion({ context, resolution }: { context?: DeploymentC
       <div><dt>Image ID</dt><dd className="mono">{context.image_id || 'unknown'}</dd></div>
       <div><dt>Registry digests</dt><dd className="mono">{context.repo_digests?.join(', ') || 'unknown'}</dd></div>
       <div><dt>Collector / container</dt><dd className="mono">{context.collector_id} / {context.container_id}</dd></div>
-    </dl>{resolution?.reason && <p role={resolution.status === 'unavailable' ? 'alert' : undefined}>{resolution.reason}</p>}
+    </dl>{context.runtime_config && <details className="deep-analysis"><summary>Observed runtime configuration</summary>
+      <p>Collector snapshot. Sensitive values are redacted; mount contents are not captured.</p>
+      {context.runtime_config.status === 'available' ? <>
+        <h4>Environment</h4><dl className="context-list">{context.runtime_config.environment.map(item => <div key={item.name}><dt>{item.name}</dt><dd className="mono">{item.value}</dd></div>)}</dl>
+        <h4>Mounts</h4><ul>{context.runtime_config.mounts.map((mount, index) => <li key={`${mount.destination}-${index}`}><span className="mono">{mount.destination}</span> · {mount.type} · {mount.read_only ? 'read only' : 'read/write'}</li>)}</ul>
+        {context.runtime_config.truncated && <p>Additional settings were omitted by the collector.</p>}
+      </> : <p>Container configuration could not be inspected.</p>}
+    </details>}{resolution?.reason && <p role={resolution.status === 'unavailable' ? 'alert' : undefined}>{resolution.reason}</p>}
   </Panel>;
 }
 

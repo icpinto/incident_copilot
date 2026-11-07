@@ -3,7 +3,7 @@
 import hashlib
 import json
 
-from incident_copilot.schemas.deployment import DeploymentContext, ReleaseMetadata
+from incident_copilot.schemas.deployment import DeploymentContext, ReleaseMetadata, RuntimeConfiguration
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS collector_sources (
@@ -25,7 +25,7 @@ def deployment_key(collector_id: str, container_id: str) -> str:
 
 
 def observe(db, *, collector_id: str, project: str, service: str, container_id: str,
-            release: ReleaseMetadata, now: str) -> dict:
+            release: ReleaseMetadata, now: str, runtime_config: RuntimeConfiguration | None = None) -> dict:
     key = deployment_key(collector_id, container_id)
     row = db.execute("SELECT payload FROM deployments WHERE id=?", (key,)).fetchone()
     value = json.loads(row[0]) if row else {
@@ -40,6 +40,9 @@ def observe(db, *, collector_id: str, project: str, service: str, container_id: 
     for name, item in release.model_dump().items():
         if not value.get(name) and item:
             value[name] = item
+    if runtime_config and (not value.get("runtime_config") or
+                           value["runtime_config"].get("status") != "available" and runtime_config.status == "available"):
+        value["runtime_config"] = runtime_config.model_dump()
     if "release_identity" not in value:
         value["release_identity"] = hashlib.sha256(json.dumps([
             value.get("revision"), value.get("image_id") or value.get("repo_digests") or container_id

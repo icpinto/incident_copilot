@@ -193,6 +193,49 @@ def test_collector_identity_and_mapping_are_scoped(setup, client):
     assert client.get("/api/incidents").json()["total"] == 2
 
 
+def test_runtime_configuration_is_captured_for_analysis_and_frozen(setup, client, monkeypatch):
+    service, _, first, _ = setup
+    headers = map_source(client)
+    config = {"status": "available", "environment": [
+        {"name": "LOG_LEVEL", "value": "debug"},
+        {"name": "DB_PASSWORD", "value": "[redacted]"}],
+        "mounts": [{"destination": "/app/config", "type": "bind", "read_only": True}],
+        "truncated": False}
+    observation = {"project": "app", "service": "api", "container_id": "container-a",
+                   "release": {"revision": first}, "runtime_config": config}
+    assert client.post("/api/collector/inventory", json={"collector_id": "host-a", "projects": {},
+        "containers": [observation]}, headers=headers).status_code == 202
+    assert client.post("/api/collector/logs", json=batch(first), headers=headers).json()["investigations"] == 1
+    run = client.get("/api/incidents").json()["items"][0]
+    assert run["deployment_context"]["runtime_config"] == config
+    from incident_copilot.dashboard import activities
+    from incident_copilot.graph.nodes.build_hypotheses import build_diagnosis_prompt
+    from incident_copilot.llm.prompts import DIAGNOSIS_USER_TEMPLATE
+    assert "{runtime_config}" in DIAGNOSIS_USER_TEMPLATE
+    assert '"LOG_LEVEL": "debug"' not in build_diagnosis_prompt({"parsed_log": {},
+        "runtime_config": config})
+    assert '"name": "LOG_LEVEL"' in build_diagnosis_prompt({"parsed_log": {},
+        "runtime_config": config})
+    async def diagnose(payload, settings, runtime_context):
+        assert payload["runtime_config"] == config
+        return payload | {"summary": "configuration recorded", "engine": "deterministic"}
+    monkeypatch.setattr(activities, "run_diagnosis_graph", diagnose)
+    for stage in ("indexing", "correlating", "analyzing", "reasoning"):
+        asyncio.run(dashboard_stage_activity(run["id"], stage))
+    saved = service.store.get("incidents", run["id"])
+    assert saved["report"]["deployment_context"]["runtime_config"] == config
+    assert "Observed Runtime Configuration" in (Path(saved["artifact_dir"]) / "report.md").read_text()
+    changed = observation | {"runtime_config": config | {"environment": [{"name": "LOG_LEVEL", "value": "error"}]}}
+    client.post("/api/collector/inventory", json={"collector_id": "host-a", "projects": {},
+        "containers": [changed]}, headers=headers)
+    assert service.store.get("incidents", run["id"])["deployment_context"]["runtime_config"] == config
+    rerun = service.submit(IncidentSubmission.model_validate(saved["input"]), original=saved)
+    assert rerun.deployment_context.runtime_config.environment[0].value == "debug"
+    assert client.post("/api/collector/inventory", json={"collector_id": "host-a", "projects": {},
+        "containers": [observation | {"runtime_config": config | {"environment": [
+            {"name": "DB_PASSWORD", "value": "real-secret"}]}}]}, headers=headers).status_code == 422
+
+
 def test_manual_selection_validates_mapping_and_deduplicates_by_deployment(setup, client):
     _, _, first, second = setup
     headers = map_source(client)
@@ -236,15 +279,39 @@ def test_persistent_collector_identity_and_inventory_image_digests(tmp_path, mon
     assert start.collector_identity(tmp_path) == "explicit-host"
     inventory = load("collector_inventory", "inventory.py")
     def fetch(path):
-        if path.startswith("/containers"):
+        if path == "/containers/json?all=0":
             return [{"Id": "a", "ImageID": "sha256:config", "Image": "app:latest", "Labels": {
                 "com.docker.compose.project": "app", "com.docker.compose.service": "api",
                 "org.opencontainers.image.revision": "a" * 40}}]
+        if path.startswith("/containers/"):
+            return {"Config": {"Env": []}, "Mounts": []}
         return {"RepoDigests": ["app@sha256:manifest"]}
     result = inventory.inventory(fetch)
     assert result["collector_id"] == "explicit-host"
     assert result["containers"][0]["release"]["image_id"] == "sha256:config"
     assert result["containers"][0]["release"]["repo_digests"] == ["app@sha256:manifest"]
+
+
+def test_collector_runtime_config_redacts_values_and_omits_mount_sources(monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("collector_runtime_inventory", root / "collector" / "inventory.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    def fetch(path):
+        if path == "/containers/json?all=0":
+            return [{"Id": "container-a", "ImageID": "sha256:image", "Image": "app:v1", "Labels": {
+                "com.docker.compose.project": "app", "com.docker.compose.service": "api"}}]
+        if path.startswith("/images/"):
+            return {"RepoDigests": []}
+        return {"Config": {"Env": ["LOG_LEVEL=debug", "DB_PASSWORD=do-not-send", "DB_URL=postgres://user:password@db/app"]},
+                "Mounts": [{"Destination": "/app/config", "Source": "/host/private/config",
+                            "Type": "bind", "RW": False}]}
+    snapshot = module.inventory(fetch)["containers"][0]["runtime_config"]
+    assert snapshot["environment"] == [{"name": "LOG_LEVEL", "value": "debug"},
+                                       {"name": "DB_PASSWORD", "value": "[redacted]"},
+                                       {"name": "DB_URL", "value": "[redacted]"}]
+    assert snapshot["mounts"] == [{"destination": "/app/config", "type": "bind", "read_only": True}]
+    assert "do-not-send" not in str(snapshot) and "/host/private/config" not in str(snapshot)
 
 
 def test_github_exact_commit_ignores_latest_synced_branch_and_untrusted_label(setup, monkeypatch):

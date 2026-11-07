@@ -68,6 +68,16 @@ RepoDigests. A local image ID identifies its configuration object; it is not a
 registry manifest digest. Locally built images may have no registry digest. Missing
 values display as unknown. Image inspection failures do not discard error logs.
 
+The collector also inspects each observed container's effective environment and
+mount metadata. It sends at most 128 environment names and 64 mount destinations,
+types, and access modes. Only a short allowlist of non-secret settings (environment,
+log level, debug, port, host, worker count, and feature flags) includes values;
+other values are recorded as `[redacted]`. Host mount sources and mounted file
+contents are never sent. The incident freezes the most recent observation for its
+container at submission, and both analysis paths receive a bounded view of it.
+If the first log arrives before inventory or inspection fails, configuration may
+be unavailable for that incident. Rebuild the collector to enable capture.
+
 Container observations remain after containers disappear. Their timestamps mean
 first and last **observed**, not the exact deployment or termination time. Buffered
 log batches retain their container and release declaration. They are never
@@ -103,7 +113,7 @@ necessary. The deployment must map to the selected repository and agree with any
 service hint. Leaving this selection empty preserves the configured-source flow.
 
 Every investigation uses one selected service revision. Mixed-version service
-investigations, deployment comparisons, configuration diffs, Kubernetes, and CI/CD
+investigations, configuration diffs, Kubernetes, and CI/CD
 deployment-event ingestion are outside this release.
 
 ## API changes and counting
@@ -119,7 +129,8 @@ deployment-event ingestion are outside this release.
   their deployment context, even when an investigation is suppressed by cooldown.
 - Collector inventory adds `collector_id` and `containers`; each container includes
   `project`, `service`, `container_id`, and a `release` object containing `revision`,
-  `version`, `source_url`, `image_ref`, `image_id`, and `repo_digests`. Log batches add
+  `version`, `source_url`, `image_ref`, `image_id`, and `repo_digests`, plus a bounded
+  `runtime_config` observation. Log batches add
   the same collector/release metadata. All additions are optional for old clients.
 
 Issue fingerprints remain stable across releases. Investigation cooldowns include

@@ -15,6 +15,7 @@ from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.code_graph import GraphPreparation
 from incident_copilot.schemas.diagnosis import DiagnosisReport
+from incident_copilot.schemas.deployment import analysis_configuration
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
 
 from .config import Configuration, control_path
@@ -184,6 +185,7 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
                 "candidates": evidence.get("candidates", []), "deep_analysis": evidence.get("deep_analysis", {}),
                 "candidate_limit": config.top_k_candidates,
                 "graph_context": evidence.get("graph_context"),
+                "runtime_config": analysis_configuration((run.get("deployment_context") or {}).get("runtime_config")),
             }, config, runtime_context=InvestigationRuntime(
                 repo_root=root.resolve(), index_db_path=Path(run["index_db_path"]),
                 execution_id=incident_id, progress=progress, heartbeat=heartbeat,

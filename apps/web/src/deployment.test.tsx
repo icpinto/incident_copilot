@@ -29,6 +29,17 @@ it('shows declared and analyzed commits, image identities, and source failure in
   expect(screen.getByText('production / api')).toBeInTheDocument();
 });
 
+it('shows the saved runtime settings with redacted values and mount metadata', async () => {
+  view(<DeployedVersion context={{ ...context, runtime_config: { status: 'available',
+    environment: [{ name: 'LOG_LEVEL', value: 'debug' }, { name: 'DB_PASSWORD', value: '[redacted]' }],
+    mounts: [{ destination: '/app/config', type: 'bind', read_only: true }], truncated: false } }} />);
+  await userEvent.click(screen.getByText('Observed runtime configuration'));
+  expect(screen.getByText('LOG_LEVEL')).toBeInTheDocument();
+  expect(screen.getByText('debug')).toBeInTheDocument();
+  expect(screen.getByText('[redacted]')).toBeInTheDocument();
+  expect(screen.getByText('/app/config')).toBeInTheDocument();
+});
+
 it('saves environment and per-service enablement for the correct collector', async () => {
   const writes: { url: string; body: unknown }[] = [];
   mockFetch((url, init) => {

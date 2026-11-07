@@ -9,6 +9,7 @@ class DiagnosisState(TypedDict, total=False):
     candidates: list[dict[str, Any]]
     deep_analysis: dict[str, Any]
     graph_context: dict[str, Any] | None
+    runtime_config: dict[str, Any] | None
     hypotheses: list[dict[str, Any]]
     diagnosis_status: str
     diagnosis_reason: str | None

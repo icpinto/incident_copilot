@@ -304,6 +304,14 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
         add("file_analysis", analysis, file_path=path)
     if state.get("graph_context"):
         add("code_graph", state["graph_context"])
+    if state.get("runtime_config"):
+        config = state["runtime_config"]
+        add("runtime_config", {"status": config.get("status"),
+            "environment": config.get("environment", [])[:32],
+            "mounts": config.get("mounts", [])[:16],
+            "truncated": bool(config.get("truncated") or len(config.get("environment", [])) > 32
+                              or len(config.get("mounts", [])) > 16)},
+            limitations=["Collector observation only; redacted values and mount contents are unavailable."])
     state.update(source_snapshot=snapshot, evidence_records=records, working_hypotheses=[],
                  pending_requests=[], retrieval_outcomes={}, investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",

@@ -49,6 +49,7 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
         "candidate_summary": candidates,
         "deep_analysis": deep_analysis,
         "graph_context": state.get("graph_context"),
+        "runtime_config": state.get("runtime_config"),
     }
     if policy_view is not None:
         policy_view.update(content)

@@ -15,6 +15,7 @@ from incident_copilot.schemas.deployment import (
     DeploymentObservation,
     DeploymentPage,
     ReleaseMetadata,
+    RuntimeConfiguration,
 )
 
 from .deployments import context, observe
@@ -40,6 +41,7 @@ class ContainerObservation(BaseModel):
     service: str = Field(min_length=1, max_length=120)
     container_id: str = Field(min_length=1, max_length=128)
     release: ReleaseMetadata = Field(default_factory=ReleaseMetadata)
+    runtime_config: RuntimeConfiguration | None = None
 
 
 class Inventory(BaseModel):
@@ -113,8 +115,9 @@ def inventory(payload: Inventory, service: Annotated[DashboardService, Depends(c
                     SET services=excluded.services,last_seen=excluded.last_seen""",
                     (payload.collector_id, project, json.dumps(sorted(set(names))), now))
             for item in payload.containers:
-                observe(db, collector_id=payload.collector_id, **item.model_dump(exclude={"release"}),
-                        release=item.release, now=now)
+                observe(db, collector_id=payload.collector_id,
+                        **item.model_dump(exclude={"release", "runtime_config"}),
+                        release=item.release, runtime_config=item.runtime_config, now=now)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     return {"projects": len(payload.projects)}
@@ -159,7 +162,8 @@ def ingest(payload: LogBatch, service: Annotated[DashboardService, Depends(colle
     with service.store.connection() as db:
         try:
             observation = observe(db, collector_id=payload.collector_id, project=payload.project,
-                service=payload.service, container_id=payload.container_id, release=payload.release, now=utcnow())
+                service=payload.service, container_id=payload.container_id, release=payload.release,
+                runtime_config=payload.runtime_config, now=utcnow())
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
     deployment = service.configuration.redact(context(observation, source, payload.release))
