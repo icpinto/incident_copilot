@@ -3,6 +3,9 @@ from typing import Any, TypedDict
 
 class DiagnosisState(TypedDict, total=False):
     incident_id: str
+    action_plan_version: int | None
+    runbooks: list[dict[str, Any]]
+    recommendation_limitations: list[str]
     parsed_log: dict[str, Any]
     incident_context: dict[str, Any] | None
     omitted_initial_context_count: int

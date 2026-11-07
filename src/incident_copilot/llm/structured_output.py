@@ -3,8 +3,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from incident_copilot.analysis.recommendations import claim_references
 from incident_copilot.llm.validation import SEMANTIC_MESSAGES
 from incident_copilot.schemas.diagnosis import Hypothesis
+from incident_copilot.schemas.recommendations import HypothesisActionPlan
 from incident_copilot.schemas.runtime import FailureLayer
 
 
@@ -20,14 +22,25 @@ class GeneratedHypothesis(BaseModel):
     evidence: list[str]
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     next_checks: list[str]
+    action_plan: HypothesisActionPlan
 
 
 def report_hypothesis(raw: dict, evidence_refs: list[str] | None = None) -> dict:
+    plan = raw.get("action_plan")
+    identifier = f"hypothesis-{raw['rank']}"
+    if plan:
+        plan = HypothesisActionPlan.model_validate(plan).model_dump(mode="json")
+        for kind in ("checks", "mitigations"):
+            for index, action in enumerate(plan[kind], 1):
+                action["id"] = f"{identifier}-{kind}-{index}"
     return Hypothesis(
-        **{key: raw[key] for key in ("rank", "title", "explanation", "evidence", "next_checks")},
+        **{key: raw[key] for key in ("rank", "title", "explanation")},
+        evidence=[item["claim"] for item in plan["supporting_evidence"]] if plan else raw["evidence"],
+        next_checks=[item["instruction"] for item in plan["checks"]] if plan else raw["next_checks"],
         confidence=None, confidence_status="unavailable", model_score=raw["confidence"],
         failure_layer=raw.get("failure_layer", "unknown"),
-        evidence_refs=evidence_refs if evidence_refs is not None else raw.get("evidence_refs", []),
+        evidence_refs=list(dict.fromkeys((evidence_refs if evidence_refs is not None else raw.get("evidence_refs", [])) + claim_references(raw))),
+        id=identifier, action_plan=plan,
     ).model_dump(mode="json")
 
 

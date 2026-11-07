@@ -18,6 +18,7 @@ from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
 from incident_copilot.workflows.log_context import hydrate_parsed_log, offload_parsed_log
+from tests.action_plan_fixtures import action_plan, shown_evidence
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "incident_timeline" / "correlated.jsonl"
 OUTCOME = {
@@ -266,6 +267,7 @@ async def test_both_reasoning_modes_and_checkpoint_resume_keep_scope(indexed, tm
             calls.append(prompt)
             assert "unrelated-sentinel" not in prompt
             h = {"rank": 1, "title": "Upstream failure", "explanation": "Inspect database availability", "evidence": ["ConnectionError"], "confidence": .5, "next_checks": ["Check database"]}
+            h["action_plan"] = action_plan([shown_evidence(prompt)[0]["id"]])
             if prompt.startswith("{"):
                 evidence = json.loads(prompt)["evidence"]
                 assert any(e["kind"] == "exception_chain" for e in evidence)

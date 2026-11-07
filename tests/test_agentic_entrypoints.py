@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from incident_copilot.core.settings import Settings
 from incident_copilot.workflows import temporal_activities, temporal_workflows
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
+from tests.action_plan_fixtures import action_plan
 
 OUTCOME = {
     "diagnosis_status": "provisional",
@@ -223,7 +224,7 @@ def test_enabled_entrypoints_share_investigation_and_initial_analysis(
                     "explanation": "The indexed charge function raises ValueError.",
                     "evidence": ["The logs and static code identify a charge failure."],
                     "confidence": .6, "next_checks": ["Inspect the incident input."],
-                    "evidence_refs": [reference], "contradicting_evidence_refs": [],
+                    "evidence_refs": [reference], "contradicting_evidence_refs": [], "action_plan": action_plan([reference]),
                 }],
             })
 

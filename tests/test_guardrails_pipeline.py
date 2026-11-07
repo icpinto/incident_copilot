@@ -21,6 +21,7 @@ from incident_copilot.llm import client
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.index import FileRecord
+from tests.action_plan_fixtures import action_plan, shown_evidence
 
 pytestmark = pytest.mark.asyncio
 
@@ -72,6 +73,7 @@ class PipelineModel:
                 if self.generation_calls == 1
                 else [],
             )
+        body["hypotheses"][0]["action_plan"] = action_plan([shown_evidence(kwargs["prompt"])[0]["id"]])
         return json.dumps(body)
 
 

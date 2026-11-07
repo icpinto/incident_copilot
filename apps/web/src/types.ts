@@ -5,7 +5,7 @@ export type DeploymentPage = { items: DeploymentObservation[]; total: number; pa
 export type SourceResolution = { status: 'pending' | 'matched' | 'unavailable' | 'unknown'; requested_commit: string | null; analyzed_commit: string | null; reason: string | null };
 export type DeploymentEvidence = { deployment_context?: DeploymentContext | null; source_resolution?: SourceResolution };
 export type Candidate = { file_path: string; symbol_name: string | null; service_name: string | null; score: number; reasons: string[]; snippet: string | null; line_start: number | null; line_end: number | null; group_id?: string | null; event_ids?: string[] };
-export type Hypothesis = { rank: number; failure_layer?: 'application' | 'database' | 'network' | 'infrastructure' | 'unknown'; title: string; explanation: string; confidence: number | null; confidence_status?: 'unavailable' | 'uncalibrated' | 'calibrated'; model_score?: number | null; evidence: string[]; evidence_refs?: string[]; next_checks: string[] };
+export type Hypothesis = { id?: string | null; action_plan?: HypothesisActionPlan | null; rank: number; failure_layer?: 'application' | 'database' | 'network' | 'infrastructure' | 'unknown'; title: string; explanation: string; confidence: number | null; confidence_status?: 'unavailable' | 'uncalibrated' | 'calibrated'; model_score?: number | null; evidence: string[]; evidence_refs?: string[]; next_checks: string[] };
 export type RuntimeProvenance = { collector_id: string; project: string; environment: string; service: string; container_ids: string[]; requested_start: string; requested_end: string; observed_at: string; actual_start?: string | null; actual_end?: string | null; coverage: string };
 export type RuntimeCollection = { id: string; capability: string; status: string; reason?: string | null; duration_ms: number };
 export type EvidenceItem = { id: string; kind: string; repository?: string | null; revision?: string | null; runtime?: RuntimeProvenance | null; file_path?: string | null; line_start?: number | null; line_end?: number | null; content: string; data: Record<string, unknown>; limitations: string[]; request_id?: string | null; truncated: boolean };
@@ -17,7 +17,7 @@ export type GuardrailEvent = { id: string; stage: 'input' | 'output'; status: 'p
 export type GuardrailSummary = { mode: 'off' | 'observe' | 'enforce'; policy_version: string; checks: number; model_calls: number; duration_ms: number; events: GuardrailEvent[] };
 export type InvestigationEvidence = { runtime_collection?: RuntimeCollection[]; runtime_evidence?: EvidenceItem[]; retrieved_evidence?: EvidenceItem[]; investigation?: InvestigationSummary | null; investigation_events?: InvestigationEvent[]; validation_errors?: AnalysisValidationError[]; guardrails?: GuardrailSummary | null };
 export type GraphContext = { provider: string; provider_version: string | null; repository: string; repo_revision: string | null; indexed_revision: string | null; status: string; reason: string | null; completeness: string; retrieval_ms: number; symbols: { uid: string; name: string; file_path: string; line_start: number | null }[]; relationships: { source_uid: string; target_uid: string; relationship: string }[]; seeds: { file_path: string; symbol_name: string; status: string; reason: string | null }[] };
-export type Report = InvestigationEvidence & DeploymentEvidence & { repository_source?: RepositorySource | null; incident_id: string; likely_service: string | null; likely_error_class: string | null; candidates: Candidate[]; hypotheses: Hypothesis[]; diagnosis_status?: 'provisional' | 'insufficient_evidence' | 'unknown'; diagnosis_reason?: string | null; next_checks?: string[]; summary: string; engine: string; fallback_reason?: string | null; graph_context?: GraphContext | null; incident_context?: IncidentContext | null };
+export type Report = InvestigationEvidence & DeploymentEvidence & { action_plan_version?: 1 | null; runbooks?: RunbookSnapshot[]; recommendation_limitations?: string[]; follow_up?: ActionEvent[]; repository_source?: RepositorySource | null; incident_id: string; likely_service: string | null; likely_error_class: string | null; candidates: Candidate[]; hypotheses: Hypothesis[]; diagnosis_status?: 'provisional' | 'insufficient_evidence' | 'unknown'; diagnosis_reason?: string | null; next_checks?: string[]; summary: string; engine: string; fallback_reason?: string | null; graph_context?: GraphContext | null; incident_context?: IncidentContext | null };
 export type StageEvent = { stage: string; started_at: string; completed_at: string | null; attempt: number };
 export type StackFrame = { raw: string; file_path: string | null; function_name: string | null; line_number: number | null };
 export type LogException = { id: string; type: string; message: string; relation: 'caused_by' | 'during_handling' | 'cause' | null; previous_id: string | null; stack_frames: StackFrame[] };
@@ -65,3 +65,29 @@ export type ErrorIntelligenceData = {
 
 export type RepositorySource = { source_type: string; remote_url: string; branch: string; commit: string };
 export type RepositorySync = { id: string | null; repository_id: string; status: 'idle' | 'queued' | 'running' | 'completed' | 'failed'; stage: string; result?: 'updated' | 'unchanged' | null; revision?: string | null; completed_at?: string | null; error?: string | null; connection_error?: string | null; graph_preparation?: GraphPreparation | null };
+
+export type NextCheck = {
+  id: string; instruction: string; context: string; command: string | null; placeholders: string[];
+  evidence_to_collect: string; supports_hypothesis: string; weakens_hypothesis: string;
+};
+export type MitigationProposal = {
+  id: string; title: string; intended_effect: string; prerequisites: string[]; missing_prerequisites: string[];
+  risks: string[]; affected_services: string[]; steps: string[]; rollback: string[]; runbook_ids: string[];
+  verification: { measure: string; success_condition: string; observation_period: string };
+};
+export type HypothesisActionPlan = {
+  version: 1; supporting_evidence: { claim: string; evidence_refs: string[] }[]; missing_evidence: string[];
+  checks: NextCheck[]; runbooks: { runbook_id: string; section: string; reason: string }[];
+  mitigations: MitigationProposal[];
+};
+export type RunbookSnapshot = {
+  id: string; title: string; file_path: string; revision: string | null; content_hash: string;
+  services: string[]; error_classes: string[]; failure_layers: string[];
+  sections: { heading: string; line_start: number; line_end: number; content: string }[];
+};
+export type ActionStatus = 'supports' | 'weakens' | 'inconclusive' | 'blocked' | 'skipped' |
+  'in_progress' | 'applied' | 'verified' | 'failed' | 'rolled_back';
+export type ActionEvent = {
+  client_event_id: string; incident_id: string; action_id: string; action_kind: 'check' | 'mitigation';
+  status: ActionStatus; observations: string; responder: string | null; useful?: boolean | null; recorded_at: string;
+};

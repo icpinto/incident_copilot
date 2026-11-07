@@ -1,0 +1,35 @@
+[
+  {
+    "name": "dependency_timeout",
+    "service": "example-api",
+    "error_class": "TimeoutError",
+    "failure_layer": "network",
+    "observation": "Dependency span duration exceeded the observed client timeout.",
+    "check": "Compare request-linked dependency duration with the active client timeout",
+    "supports": "The linked dependency duration exceeds the configured timeout",
+    "weakens": "The linked dependency completes before the timeout and the failure occurs elsewhere",
+    "measure": "Request timeout rate and request-linked dependency latency"
+  },
+  {
+    "name": "resource_exhaustion",
+    "service": "worker",
+    "error_class": "MemoryError",
+    "failure_layer": "infrastructure",
+    "observation": "An OOM termination was observed for the failing worker in the incident window.",
+    "check": "Compare the worker memory peak and termination timestamp with the configured limit",
+    "supports": "The failing worker reaches its limit and is OOM terminated during the failing request",
+    "weakens": "The failing worker remains below its limit and has no incident-time OOM termination",
+    "measure": "Worker memory, OOM terminations and request error rate"
+  },
+  {
+    "name": "configuration_error",
+    "service": "api",
+    "error_class": "ValueError",
+    "failure_layer": "application",
+    "observation": "The application rejected an observed configuration value during startup.",
+    "check": "Compare the rejected active configuration value with the documented allowed values",
+    "supports": "The active value is outside the documented allowed values",
+    "weakens": "The active value is allowed and the rejection concerns another setting",
+    "measure": "Startup success and error rate for the affected service"
+  }
+]

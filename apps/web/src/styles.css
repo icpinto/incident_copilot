@@ -485,3 +485,18 @@ textarea { resize: vertical; }
 .version-services { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 7px; }
 .version-services legend { color: var(--text); padding: 0 6px; }
 .version-services .issue-checkbox { margin: 10px 0; }
+
+/* Manual recommendations and responder-reported follow-through. */
+.recommendations h3 { margin-top: 1.5rem; }
+.recommendations h4 { margin: 1rem 0 .5rem; }
+.recommendation-check, .mitigation-proposal { border: 1px solid var(--border, #34424b); border-radius: 8px; padding: 1rem; margin: .75rem 0; }
+.recommendation-check > summary { cursor: pointer; font-weight: 600; }
+.recommendations .code-block { white-space: pre-wrap; overflow-wrap: anywhere; }
+.action-outcome { border-top: 1px solid var(--border, #34424b); margin-top: 1rem; padding-top: .5rem; }
+.action-outcome form { display: grid; gap: .75rem; margin: 1rem 0; }
+.action-outcome label { display: grid; gap: .35rem; }
+.action-outcome textarea { min-height: 6rem; }
+.action-outcome small { display: block; }
+.action-outcome .button { justify-self: start; }
+.mitigation-proposal dd { margin: .25rem 0 .75rem; }
+.recommendations [role="status"] { margin-left: .5rem; font-size: .85rem; }

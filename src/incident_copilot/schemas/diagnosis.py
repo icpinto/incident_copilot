@@ -10,6 +10,7 @@ from .code_graph import GraphContext
 from .deployment import DeploymentContext, SourceResolution
 from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
 from .logs import IncidentContext
+from .recommendations import ActionEvent, HypothesisActionPlan, RunbookSnapshot
 from .runtime import FailureLayer
 
 
@@ -17,6 +18,8 @@ class Hypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rank: int = Field(ge=1, le=3)
+    id: str | None = None
+    action_plan: HypothesisActionPlan | None = None
     failure_layer: FailureLayer = "unknown"
     title: str
     explanation: str
@@ -44,6 +47,10 @@ class Hypothesis(BaseModel):
 
 class DiagnosisReport(BaseModel):
     incident_id: str
+    action_plan_version: Literal[1] | None = None
+    runbooks: list[RunbookSnapshot] = Field(default_factory=list)
+    recommendation_limitations: list[str] = Field(default_factory=list)
+    follow_up: list[ActionEvent] = Field(default_factory=list)
     repository_source: dict[str, str] | None = None
     deployment_context: DeploymentContext | None = None
     source_resolution: SourceResolution = Field(default_factory=SourceResolution)

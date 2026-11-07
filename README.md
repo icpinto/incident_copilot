@@ -31,6 +31,10 @@ Reports separate raw localization strength from diagnosis confidence and allow a
 explicit insufficient-evidence outcome. Diagnosis probabilities remain unavailable
 pending labeled calibration data. See [confidence semantics and human review](docs/diagnosis-confidence.md).
 
+New reports provide [actionable recommendations](docs/actionable-recommendations.md): cited evidence,
+evidence gaps, distinguishing checks, repository runbooks, mitigation prerequisites and
+recovery verification. The dashboard records manual responder outcomes for handoffs.
+
 New analyses build an [incident timeline](docs/incident-timeline.md) before ranking.
 Explicit trace/request identifiers associate events; one primary group supplies diagnosis
 evidence, while other groups remain visible in the dashboard and report exports.

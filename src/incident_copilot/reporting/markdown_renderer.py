@@ -173,6 +173,61 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                     f"[{ref}](#evidence-{ref})" for ref in h.evidence_refs
                 ), "",
             ])
+        if h.action_plan:
+            plan = h.action_plan
+            parts.extend(["#### Supporting evidence", ""])
+            for claim in plan.supporting_evidence:
+                parts.append(f"- {claim.claim}: " + ", ".join(f"[{ref}](#evidence-{ref})" for ref in claim.evidence_refs))
+            parts.extend(["", "#### Missing evidence", "", *[f"- {gap}" for gap in plan.missing_evidence]])
+            if not plan.missing_evidence:
+                parts.append("No additional evidence gaps identified by this assessment; uncertainty remains.")
+            for check in plan.checks:
+                parts.extend(["", f"#### Next check: {check.instruction}", f"- Action ID: `{check.id}`",
+                              f"- Where: {check.context}", f"- Collect: {check.evidence_to_collect}",
+                              f"- Predicted supporting result: {check.supports_hypothesis}",
+                              f"- Predicted weakening result: {check.weakens_hypothesis}"])
+                if check.command:
+                    fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", check.command)), default=0) + 1)
+                    parts.extend(["", fence, check.command, fence])
+                if check.placeholders:
+                    parts.append("- Resolve placeholders: " + "; ".join(check.placeholders))
+            parts.extend(["", "#### Relevant runbooks", ""])
+            for ref in plan.runbooks:
+                parts.append(f"- [{ref.runbook_id}](#runbook-{ref.runbook_id}), {ref.section}: {ref.reason}")
+            if not plan.runbooks:
+                parts.append("No matching runbook.")
+            for mitigation in plan.mitigations:
+                origin = "Repository runbook" if mitigation.runbook_ids else "Unreviewed model proposal"
+                parts.extend(["", f"#### Mitigation: {mitigation.title}", f"- Action ID: `{mitigation.id}`",
+                              f"- Provenance: {origin}", f"- Intended effect: {mitigation.intended_effect}",
+                              f"- Prerequisites: {'; '.join(mitigation.prerequisites)}",
+                              f"- Risks: {'; '.join(mitigation.risks)}",
+                              f"- Affected services: {'; '.join(mitigation.affected_services)}"])
+                if mitigation.missing_prerequisites:
+                    parts.append("- Blocked: " + "; ".join(mitigation.missing_prerequisites))
+                parts.extend(["", "Steps:", *[f"{i}. {step}" for i, step in enumerate(mitigation.steps, 1)],
+                              "", "Rollback:", *[f"- {step}" for step in mitigation.rollback],
+                              "", "Recovery verification (predicted):",
+                              f"- Measure: {mitigation.verification.measure}",
+                              f"- Success condition: {mitigation.verification.success_condition}",
+                              f"- Observation period: {mitigation.verification.observation_period}"])
+    if report.recommendation_limitations:
+        parts.extend(["", "## Recommendation limitations", "", *[f"- {item}" for item in report.recommendation_limitations]])
+    if report.runbooks:
+        parts.extend(["", "## Repository runbook snapshots", ""])
+        for book in report.runbooks:
+            parts.extend([f'<a id="runbook-{book.id}"></a>', f"### {book.title}",
+                          f"- Source: `{book.file_path}`; revision: `{book.revision or 'unknown'}`",
+                          f"- Content SHA-256: `{book.content_hash}`"])
+            for section in book.sections:
+                fence = "`" * max(3, max((len(p) for p in re.findall(r"`+", section.content)), default=0) + 1)
+                parts.extend(["", f"#### {section.heading} (lines {section.line_start}-{section.line_end})",
+                              fence, section.content, fence])
+    if report.follow_up:
+        parts.extend(["", "## Responder follow-through", "", "Responder-reported observations; the saved diagnosis is unchanged.", ""])
+        for event in report.follow_up:
+            parts.extend([f"- {event.recorded_at}: `{event.action_id}` - {event.status} ({event.responder or 'Responder not specified'})",
+                          f"  - Observations: {event.observations or 'None recorded'}"])
     if report.retrieved_evidence:
         parts.extend(["## Retrieved Evidence", ""])
         for item in report.retrieved_evidence:

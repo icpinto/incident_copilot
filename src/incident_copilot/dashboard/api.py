@@ -13,9 +13,12 @@ from fastapi.responses import Response
 from incident_copilot.analysis.graph_manager import repository_graph_status
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.schemas.code_graph import GraphPreparation
-from incident_copilot.schemas.diagnosis import DiagnosisReport
 
+from .action_events import public_action_events
+from .action_events import router as action_router
 from .config import control_path, fingerprint
+from .issue_api import router as issue_router
+from .log_ingestion import router as ingestion_router
 from .models import (
     ConnectionCheck,
     ConnectionResult,
@@ -33,8 +36,6 @@ from .models import (
 from .repository_source import repository_root
 from .service import DashboardService
 from .store import ControlStore
-from .issue_api import router as issue_router
-from .log_ingestion import router as ingestion_router
 
 
 async def reconciliation_loop(service: DashboardService):
@@ -69,6 +70,7 @@ def get_service(request: Request) -> DashboardService:
 router = APIRouter(prefix="/api", tags=["dashboard"])
 router.include_router(issue_router)
 router.include_router(ingestion_router)
+router.include_router(action_router)
 
 
 def found(service: DashboardService, table: str, key: str) -> dict:
@@ -224,10 +226,12 @@ def export_incident(incident_id: str, format: str = Query("json", pattern="^(jso
     record = service.public(found(service, "incidents", incident_id))
     if not record.report:
         raise HTTPException(409, "A diagnosis report is not available yet.")
+    # Overlay current responder reports only for download; never rewrite saved artifacts.
+    exported = record.report.model_copy(update={"follow_up": public_action_events(service, incident_id)})
     if format == "markdown":
-        return Response(render_markdown(DiagnosisReport.model_validate(record.report)), media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="incident-{incident_id}.md"'})
+        return Response(render_markdown(exported), media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="incident-{incident_id}.md"'})
     import json
-    return Response(json.dumps(record.report.model_dump(mode="json"), indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="incident-{incident_id}.json"'})
+    return Response(json.dumps(exported.model_dump(mode="json"), indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="incident-{incident_id}.json"'})
 
 
 @router.get("/overview", response_model=Overview)

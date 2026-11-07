@@ -1,14 +1,18 @@
+import asyncio
 from typing import Any
 
+from incident_copilot.analysis.runbooks import load_runbooks
+from incident_copilot.core.settings import settings
 from incident_copilot.graph.investigation_runtime import SourceSnapshotUnverifiedError
 from incident_copilot.graph.nodes.enrich_candidates import enrich_candidates_node
 from incident_copilot.graph.nodes.finalize_report import finalize_report_node
 from incident_copilot.graph.nodes.normalize_logs import normalize_logs_node
 from incident_copilot.graph.nodes.select_candidates import select_candidates_node
+from incident_copilot.tools.git_local import clean_revision
 
 try:
     from langgraph.graph import END, StateGraph  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:  # noqa: BLE001 -- Optional graph runtime. # pragma: no cover
     END = "__end__"
     StateGraph = None
 
@@ -17,6 +21,19 @@ from .state import DiagnosisState
 
 
 async def run_diagnosis_graph(payload: dict[str, Any], runtime_settings=None, runtime_context=None) -> DiagnosisState:
+    payload = dict(payload)
+    payload["action_plan_version"] = 1
+    if "runbooks" not in payload:
+        root = runtime_context.repo_root if runtime_context and not payload.get("source_unavailable") else None
+        revision = await asyncio.to_thread(clean_revision, root) if root is not None else None
+        parsed = payload.get("parsed_log", {})
+        from incident_copilot.correlation.log_parser import primary_log
+        parsed = primary_log(parsed)
+        payload["runbooks"], payload["recommendation_limitations"] = await asyncio.to_thread(
+            load_runbooks, root, revision, parsed.get("services", []), parsed.get("exception_types", []),
+            runtime_settings or settings,
+        )
+        payload["source_snapshot"] = {"repository": str(root.resolve()) if root else "", "revision": revision or ""}
     if runtime_settings is not None and getattr(runtime_settings, "agentic_enabled", False):
         reason = None
         if runtime_context is None:

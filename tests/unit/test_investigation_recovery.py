@@ -15,6 +15,7 @@ from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 from incident_copilot.graph.investigation_store import InvestigationStore
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
+from tests.action_plan_fixtures import action_plan
 
 OUTCOME = {
     "diagnosis_status": "provisional",
@@ -40,7 +41,7 @@ class InvestigationModel:
                 "evidence": ["Static source evidence; execution is unproven."],
                 "confidence": .6, "next_checks": ["Compare the runtime cache directory."],
                 "evidence_refs": [source["id"] if source else prompt["evidence"][0]["id"]],
-                "contradicting_evidence_refs": [],
+                "contradicting_evidence_refs": [], "action_plan": action_plan([source["id"] if source else prompt["evidence"][0]["id"]]),
             }],
             "unresolved_gaps": [],
             "requests": [] if source else [{

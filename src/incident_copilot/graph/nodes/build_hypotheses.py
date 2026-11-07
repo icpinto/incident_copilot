@@ -1,6 +1,9 @@
 import json
 import logging
 
+from incident_copilot.analysis.evidence_tools import redact_evidence
+from incident_copilot.analysis.initial_evidence import initial_evidence
+from incident_copilot.analysis.recommendations import validate_action_plans
 from incident_copilot.core.settings import settings
 from incident_copilot.correlation.log_parser import primary_log, scope_notice
 from incident_copilot.graph.state import DiagnosisState
@@ -54,7 +57,12 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
     response_schema = hypotheses_schema()
+    records, omitted = initial_evidence(state, state.get("source_snapshot") or {"repository": "", "revision": ""})
+    if omitted:
+        state["recommendation_limitations"] = state.get("recommendation_limitations", []) + [f"{omitted} initial observations omitted by evidence limits."]
     content = {
+        "citable_evidence": list(records.values()),
+        "runbooks": state.get("runbooks", []),
         "log_summary": {
             "source_unavailable": bool(state.get("source_unavailable")),
             "services": [str(value)[:120] for value in parsed.get("services", [])[:20]],
@@ -77,13 +85,13 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
             response_schema=json.dumps(response_schema),
         )
     prompt = render()
-    while len(prompt.encode()) > 32768:
+    while len(prompt.encode()) + len(DIAGNOSIS_SYSTEM_PROMPT.encode()) > 32768:
         if content["deep_analysis"]:
             content["deep_analysis"] = dict(content["deep_analysis"])
             content["deep_analysis"].pop(next(reversed(content["deep_analysis"])))
         elif content["graph_context"]:
             content["graph_context"] = None
-        elif len(content["runtime_evidence"]) > 1:
+        elif content["runtime_evidence"]:
             content["runtime_evidence"] = content["runtime_evidence"][:-1]
         elif content["candidate_summary"]:
             content["candidate_summary"] = content["candidate_summary"][:-1]
@@ -96,10 +104,21 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
             content["log_summary"]["error_lines"].pop()
         elif content["runtime_collection"]:
             content["runtime_collection"] = content["runtime_collection"][:-1]
+        elif content["runbooks"]:
+            content["runbooks"] = content["runbooks"][:-1]
+            state["recommendation_limitations"] = state.get("recommendation_limitations", []) + ["A matching runbook was omitted by the prompt limit."]
+        elif content["citable_evidence"]:
+            content["citable_evidence"] = content["citable_evidence"][:-1]
+            state["recommendation_limitations"] = state.get("recommendation_limitations", []) + ["An observation was omitted by the prompt limit."]
         else:
             break
         prompt = render()
-    state["retrieved_evidence"] = content["runtime_evidence"]
+    if len(prompt.encode()) + len(DIAGNOSIS_SYSTEM_PROMPT.encode()) > 32768:
+        from incident_copilot.llm.validation import validation_failure
+        raise validation_failure(stage="hypothesis_generation", kind="limit", code="prompt_limit", model_call=1)
+    state["retrieved_evidence"] = content["citable_evidence"]
+    state["runbooks"] = content["runbooks"]
+    state["recommendation_limitations"] = list(dict.fromkeys(state.get("recommendation_limitations", [])))
     if policy_view is not None:
         policy_view.update(content)
     return prompt
@@ -131,6 +150,8 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
     state["fallback_reason"] = None
     state["validation_errors"] = []
     state["guardrails"] = None
+    config = runtime_settings or settings
+    state = redact_evidence(state, config)
     candidates = state.get("candidates", [])
     state["retrieved_evidence"] = state.get("runtime_evidence", [])
     if not candidates and not usable_runtime(state.get("runtime_evidence", [])):
@@ -142,7 +163,13 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
     config = runtime_settings or settings
     context = GuardrailContext(config) if config.guardrails_mode != "off" else None
     view = {}
-    prompt = build_diagnosis_prompt(state, policy_view=view)
+    try:
+        prompt = build_diagnosis_prompt(state, policy_view=view)
+    except AnalysisValidationFailure as exc:
+        state["validation_errors"] = [exc.diagnostic.model_dump(mode="json")]
+        state["fallback_reason"] = "prompt_limit"
+        state.update(fallback_diagnosis(state))
+        return state
     if context:
         context.input_text = json.dumps(view, ensure_ascii=False)
         context.model_call = 1
@@ -177,8 +204,11 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
     try:
         response = validate_response(text, HypothesesResponse, stage="hypothesis_generation", model_call=1)
         known = {item["id"] for item in state.get("retrieved_evidence", [])}
+        validate_action_plans(response.hypotheses, known, state.get("runbooks", []),
+                              stage="hypothesis_generation", model_call=1,
+                              diagnosis_status=response.diagnosis_status)
         for index, hypothesis in enumerate(response.hypotheses):
-            if set(hypothesis.evidence_refs) - known or (not candidates and not hypothesis.evidence_refs):
+            if set(hypothesis.evidence_refs) - known:
                 from incident_copilot.llm.validation import validation_failure
                 raise validation_failure(stage="hypothesis_generation", kind="semantic", code="invalid_evidence_reference",
                                          path=["hypotheses", index, "evidence_refs"], model_call=1)

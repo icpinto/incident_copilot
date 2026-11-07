@@ -11,6 +11,7 @@ from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord
 from incident_copilot.schemas.investigation import EvidenceItem, ToolOutcome
+from tests.action_plan_fixtures import action_plan
 
 OUTCOME = {
     "diagnosis_status": "provisional",
@@ -46,7 +47,7 @@ def decision(prompt, requests=None):
                         "explanation": "The log identifies the cache as the incident location.",
                         "evidence": ["Incident log"], "confidence": .4,
                         "next_checks": ["Inspect the cache settings"],
-                        "evidence_refs": [shown[0]["id"]], "contradicting_evidence_refs": []}],
+                        "evidence_refs": [shown[0]["id"]], "contradicting_evidence_refs": [], "action_plan": action_plan([shown[0]["id"]])}],
     })
 
 

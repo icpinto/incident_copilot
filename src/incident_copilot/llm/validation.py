@@ -15,6 +15,9 @@ T = TypeVar("T", bound=BaseModel)
 
 # Custom validators use these stable codes instead of unstructured ValueError text.
 SEMANTIC_MESSAGES = {
+    "action_plan_required": "New hypotheses require a structured action plan.",
+    "invalid_runbook_reference": "Runbook or section was not supplied to the model.",
+    "mitigation_requires_diagnosis": "Insufficient-evidence diagnoses require checks before mitigation proposals.",
     "provisional_requires_hypothesis": "A provisional diagnosis requires at least one causal hypothesis.",
     "action_request_mismatch": "Action must be retrieve with requests, or finish without requests.",
     "invalid_ranks": "Hypothesis ranks must be unique and consecutive, starting at 1.",

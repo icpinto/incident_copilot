@@ -14,7 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from pydantic_core import PydanticCustomError
 
 from incident_copilot.analysis.evidence_tools import EvidenceTools, redact_evidence
-from incident_copilot.correlation.log_parser import group_events, scope_notice
+from incident_copilot.analysis.initial_evidence import initial_evidence
+from incident_copilot.analysis.recommendations import (
+    ACTION_PLAN_PROMPT,
+    claim_references,
+    validate_action_plans,
+)
+from incident_copilot.correlation.log_parser import scope_notice
 from incident_copilot.graph.investigation_runtime import (
     InvestigationRuntime,
     SourceSnapshotUnverifiedError,
@@ -38,13 +44,12 @@ from incident_copilot.llm.validation import (
     validation_failure,
 )
 from incident_copilot.schemas.investigation import (
-    EvidenceItem,
     EvidenceRequest,
     InvestigationEvent,
     InvestigationSummary,
     ToolOutcome,
 )
-from incident_copilot.schemas.logs import IncidentContext
+from incident_copilot.schemas.recommendations import HypothesisActionPlan
 from incident_copilot.schemas.runtime import FailureLayer
 from incident_copilot.schemas.validation import AnalysisValidationError
 from incident_copilot.tools.git_local import clean_revision
@@ -100,6 +105,9 @@ evidence cannot support a causal mechanism; include useful next checks.
 """
 
 
+SYSTEM_PROMPT += ACTION_PLAN_PROMPT
+
+
 class WorkingHypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=128)
@@ -112,6 +120,8 @@ class WorkingHypothesis(BaseModel):
     next_checks: list[str] = Field(max_length=10)
     evidence_refs: list[str] = Field(min_length=1, max_length=20)
     contradicting_evidence_refs: list[str] = Field(max_length=20)
+    # Optional only when deserializing historical checkpoints; live decisions require it.
+    action_plan: HypothesisActionPlan | None = None
 
 
 class InvestigationDecision(BaseModel):
@@ -166,6 +176,7 @@ def strict_schema() -> dict:
             for value in node:
                 visit(value)
     visit(schema)
+    schema["$defs"]["WorkingHypothesis"]["properties"]["action_plan"] = {"$ref": "#/$defs/HypothesisActionPlan"}
     return schema
 
 
@@ -189,6 +200,7 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
                                 "reason": v.get("reason"), "request_id": v.get("request_id")}
                                for v in state.get("retrieval_outcomes", {}).values()],
         "evidence": [], "omitted_evidence_ids": [],
+        "runbooks": state.get("runbooks", []),
         "analysis_scope": scope_notice(state.get("incident_context")),
         "runtime_scope": {key: value for key, value in (state.get("runtime_scope") or {}).items()
                           if key in {"services", "trace_ids", "anchor", "limitations"}},
@@ -196,6 +208,10 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
         "source_unavailable": bool(state.get("source_unavailable")),
         "omitted_initial_context_count": state.get("omitted_initial_context_count", 0),
     }
+    while len(encoded(payload)) > available - min(4096, max(0, available // 4)) and payload["runbooks"]:
+        payload["runbooks"] = payload["runbooks"][:-1]
+    if len(payload["runbooks"]) < len(state.get("runbooks", [])):
+        state["recommendation_limitations"] = list(dict.fromkeys(state.get("recommendation_limitations", []) + ["Matching runbooks were omitted by the prompt limit."]))
     records = state.get("evidence_records", {})
     cited = {ref for h in previous for name in ("evidence_refs", "contradicting_evidence_refs")
              for ref in (h.get(name) or [])}
@@ -214,6 +230,8 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
         if len(encoded(payload)) > available:
             payload["evidence"].pop()
             payload["omitted_evidence_ids"].append(item["id"])
+    while len(encoded(payload)) > available and payload["runbooks"]:
+        payload["runbooks"] = payload["runbooks"][:-1]
     # IDs themselves cost space; remove old items until the final envelope fits.
     while len(encoded(payload)) > available and payload["evidence"]:
         payload["omitted_evidence_ids"].append(payload["evidence"].pop()["id"])
@@ -277,7 +295,9 @@ def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
             "investigation_events": state.get("investigation_events", []),
             "graph_context": state.get("graph_context"),
             "validation_errors": state.get("validation_errors", []),
-            "guardrails": state.get("guardrails")}
+            "guardrails": state.get("guardrails"),
+            "runbooks": state.get("runbooks", []),
+            "recommendation_limitations": state.get("recommendation_limitations", [])}
 
 
 def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
@@ -287,60 +307,10 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
     state = enrich_candidates_node(state)
     parsed = state.get("parsed_log", {})
     state["parsed_log"] = {k: parsed.get(k, []) for k in ("services", "exception_types", "error_lines", "keywords")}
-    records = {}
-    omitted = 0
-    initial_bytes = 0
-    def add(kind, data=None, content="", **location):
-        nonlocal omitted, initial_bytes
-        item = EvidenceItem(id="e-" + digest([snapshot, kind, data, content, location]), kind=kind,
-                            repository=snapshot["repository"], revision=snapshot["revision"],
-                            data=data or {}, content=content, **location).model_dump(mode="json")
-        size = len(encoded(item))
-        if size <= 8192 and initial_bytes + size <= MAX_EVIDENCE_BYTES:
-            records[item["id"]] = item
-            initial_bytes += size
-        else:
-            omitted += 1
-    log = {k: [str(v)[:512] for v in parsed.get(k, [])[:10]]
-           for k in ("services", "exception_types", "error_lines", "keywords")}
-    add("log", log)
-    if state.get("incident_context"):
-        context = IncidentContext.model_validate(state["incident_context"])
-        for event in group_events(context, context.primary_group_id):
-            item = event.model_dump(exclude={"exceptions", "stack_frames"})
-            clipped = len(item["message"]) > 2000
-            item["message"] = item["message"][:2000]
-            if clipped:
-                item["limitations"] = item["limitations"] + ["Event message clipped for model evidence."]
-            add("log_event", item, truncated=clipped)
-            for exception in event.exceptions:
-                data = exception.model_dump()
-                data.update(event_id=event.id, group_id=context.primary_group_id)
-                add("exception_chain", data)
-    for candidate in state.get("candidates", [])[:10]:
-        add("candidate", {k: candidate.get(k) for k in ("symbol_name", "score", "reasons")},
-            content="\n".join((candidate.get("snippet") or "").splitlines()[:80]).encode()[:4096].decode("utf-8", "ignore"),
-            file_path=candidate.get("file_path"), line_start=candidate.get("line_start"), line_end=candidate.get("line_end"))
-    for path, analysis in state.get("deep_analysis", {}).items():
-        add("file_analysis", analysis, file_path=path)
-    if state.get("graph_context"):
-        add("code_graph", state["graph_context"])
-    if state.get("runtime_config"):
-        config = state["runtime_config"]
-        add("runtime_config", {"status": config.get("status"),
-            "environment": config.get("environment", [])[:32],
-            "mounts": config.get("mounts", [])[:16],
-            "truncated": bool(config.get("truncated") or len(config.get("environment", [])) > 32
-                              or len(config.get("mounts", [])) > 16)},
-            limitations=["Collector observation only; redacted values and mount contents are unavailable."])
-    for raw in state.get("runtime_evidence", []):
-        item = EvidenceItem.model_validate(raw).model_dump(mode="json")
-        size = len(encoded(item))
-        if size <= 8192 and initial_bytes + size <= MAX_EVIDENCE_BYTES:
-            records[item["id"]] = item
-            initial_bytes += size
-        else:
-            omitted += 1
+    if any(book.get("revision") != snapshot.get("revision") for book in state.get("runbooks", [])):
+        state["runbooks"] = []
+        state["recommendation_limitations"] = state.get("recommendation_limitations", []) + ["Runbooks omitted because the source revision changed."]
+    records, omitted = initial_evidence(state, snapshot, MAX_EVIDENCE_BYTES)
     state.update(source_snapshot=snapshot, evidence_records=records, working_hypotheses=[],
                  pending_requests=[], retrieval_outcomes={}, investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",
@@ -458,6 +428,7 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     known.update(ref for hypothesis in state.get("working_hypotheses", [])
                                  for name in ("evidence_refs", "contradicting_evidence_refs")
                                  for ref in hypothesis.get(name, []))
+                    known.update(ref for hypothesis in state.get("working_hypotheses", []) for ref in claim_references(hypothesis))
                     for index, hypothesis in enumerate(decision.hypotheses):
                         for field in ("evidence_refs", "contradicting_evidence_refs"):
                             for ref_index, ref in enumerate(getattr(hypothesis, field)):
@@ -465,6 +436,9 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                                     raise validation_failure(stage="investigation_assessment", kind="semantic",
                                         code="invalid_evidence_reference", model_call=journal.budget()["model_calls"],
                                         path=["hypotheses", index, field, ref_index])
+                    validate_action_plans(decision.hypotheses, known, json.loads(prompt)["runbooks"],
+                                          stage="investigation_assessment", model_call=journal.budget()["model_calls"],
+                                          diagnosis_status=decision.diagnosis_status)
                     saved = {"decision": redact(decision.model_dump(mode="json"), settings),
                              "duration_ms": round((time.monotonic() - started) * 1000, 2)}
                     journal.put(key, saved)
@@ -493,7 +467,7 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                 return stop(state, saved["guardrail_stop"])
             decision = saved["decision"]
             event = InvestigationEvent(id=key, kind="assessment", status="completed", duration_ms=saved["duration_ms"])
-            return {"assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
+            return {"recommendation_limitations": state.get("recommendation_limitations", []), "assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
                     "source_unavailable": bool(state.get("source_unavailable")),
                     "engine": "deterministic+llm", "execution_budget": journal.budget(),
                     "guardrails": guardrails.summary() if guardrails else None,
@@ -623,7 +597,7 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             known = set(state["evidence_records"])
             hypotheses = []
             for raw in state.get("working_hypotheses", []):
-                refs = list(dict.fromkeys(raw["evidence_refs"] + raw["contradicting_evidence_refs"]))
+                refs = list(dict.fromkeys(raw["evidence_refs"] + raw["contradicting_evidence_refs"] + claim_references(raw)))
                 if set(refs) <= known:
                     hypotheses.append(report_hypothesis(raw, refs))
             decision = state.get("assessment_decision", {})

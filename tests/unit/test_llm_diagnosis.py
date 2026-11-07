@@ -5,6 +5,7 @@ import logging
 import httpx
 import pytest
 
+from incident_copilot.analysis.initial_evidence import initial_evidence
 from incident_copilot.core.settings import Settings
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.graph.nodes import build_hypotheses
@@ -12,6 +13,7 @@ from incident_copilot.llm.adapters.ollama import OllamaClient
 from incident_copilot.llm.adapters.openai_compatible import OpenAICompatibleClient
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
+from tests.action_plan_fixtures import action_plan
 
 OUTCOME = {
     "diagnosis_status": "provisional",
@@ -28,6 +30,7 @@ def hypothesis(rank=1, **overrides):
         "evidence": ["main.py:6: ValueError"],
         "confidence": 0.7,
         "next_checks": ["Inspect charge input"],
+        "action_plan": action_plan([next(iter(initial_evidence(state(), {"repository": "", "revision": ""})[0]))]),
         **overrides,
     }
 
@@ -84,6 +87,7 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
             "next_checks",
             "failure_layer",
             "evidence_refs",
+            "action_plan",
         }
         assert item["properties"]["confidence"]["maximum"] == 1
         assert '"hypotheses"' in prompt and "rank (integer)" in prompt

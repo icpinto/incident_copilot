@@ -11,6 +11,7 @@ from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.schemas.index import FileRecord, SymbolRecord
 from incident_copilot.schemas.investigation import EvidenceItem, ToolOutcome
+from tests.action_plan_fixtures import action_plan
 
 OUTCOME = {
     "diagnosis_status": "provisional",
@@ -45,7 +46,7 @@ def response(prompt, requests=None, *, refs=None, title="Cache path handling", g
         "explanation": "The available evidence points to path handling; runtime causation needs confirmation.",
         "evidence": ["Retrieved source and incident logs"], "confidence": 0.6,
         "next_checks": ["Check the input path"], "evidence_refs": refs or [data["evidence"][0]["id"]],
-        "contradicting_evidence_refs": []}]})
+        "contradicting_evidence_refs": [], "action_plan": action_plan(refs or [data["evidence"][0]["id"]])}]})
 
 
 @pytest.mark.asyncio

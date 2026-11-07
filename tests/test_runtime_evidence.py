@@ -17,6 +17,7 @@ from incident_copilot.dashboard.store import ControlStore
 from incident_copilot.schemas.deployment import ReleaseMetadata
 from incident_copilot.schemas.investigation import EvidenceItem, EvidenceRequest
 from incident_copilot.schemas.runtime import RuntimeQuery
+from tests.action_plan_fixtures import action_plan
 
 
 @pytest.fixture
@@ -365,7 +366,7 @@ async def test_runtime_only_single_pass_diagnosis_and_citations(setup_runtime, m
                             "failure_layer": "infrastructure",
                             "explanation": "An OOM termination interrupted the dependency.",
                             "evidence": ["OOM state"],
-                            "evidence_refs": [ref],
+                            "evidence_refs": [ref], "action_plan": action_plan([ref]),
                             "confidence": 0.8,
                             "next_checks": [],
                         }
@@ -603,7 +604,7 @@ async def test_runtime_only_investigator_can_request_followup_without_source(
                             "evidence": ["OOM state"],
                             "confidence": 0.8,
                             "next_checks": [],
-                            "evidence_refs": [ref],
+                            "evidence_refs": [ref], "action_plan": action_plan([ref]),
                             "contradicting_evidence_refs": [],
                         }
                     ],

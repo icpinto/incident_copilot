@@ -7,6 +7,9 @@ from incident_copilot.schemas.diagnosis import DiagnosisReport, Hypothesis
 def build_report(graph_state: dict) -> DiagnosisReport:
     return DiagnosisReport(
         incident_id=graph_state.get("incident_id") or str(uuid4()),
+        action_plan_version=graph_state.get("action_plan_version") or (1 if any(h.get("action_plan") for h in graph_state.get("hypotheses", [])) else None),
+        runbooks=graph_state.get("runbooks", []),
+        recommendation_limitations=graph_state.get("recommendation_limitations", []),
         likely_service=graph_state.get("likely_service"),
         likely_error_class=graph_state.get("likely_error_class"),
         candidates=[CandidateLocation.model_validate(c) for c in graph_state.get("candidates", [])],

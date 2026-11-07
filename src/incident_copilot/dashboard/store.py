@@ -43,6 +43,8 @@ class ControlStore:
                     repository_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
                     last_started TEXT NOT NULL, PRIMARY KEY(repository_id, fingerprint));
             """)
+            from .action_events import SCHEMA as ACTION_SCHEMA
+            db.executescript(ACTION_SCHEMA)
             from .issue_capture import SCHEMA
             db.executescript(SCHEMA)
             from .deployments import SCHEMA as DEPLOYMENT_SCHEMA
