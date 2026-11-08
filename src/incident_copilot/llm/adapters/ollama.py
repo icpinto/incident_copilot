@@ -23,7 +23,7 @@ class OllamaClient:
             payload["system"] = system_prompt
         if response_schema is not None:
             payload["format"] = response_schema
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=315) as client:
             response = await client.post(f"{self.base_url}/api/generate", json=payload)
             response.raise_for_status()
             data = response.json()

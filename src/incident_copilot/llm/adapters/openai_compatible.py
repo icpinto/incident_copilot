@@ -32,7 +32,7 @@ class OpenAICompatibleClient:
                     "schema": response_schema,
                 },
             }
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=315) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions", json=payload, headers=headers
             )

@@ -11,8 +11,8 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
 router_settings:
-  # Stay below the application's 120-second HTTP timeout. Temporal owns retries.
-  timeout: 110
+  # Allow five minutes for inference; the application waits 315 seconds.
+  timeout: 300
   num_retries: 0
 
 litellm_settings:
