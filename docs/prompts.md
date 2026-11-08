@@ -7,7 +7,8 @@ OpenAI-compatible endpoints through `response_format` with `json_schema` and
 `strict: true`. The prompt also includes the schema. Endpoints must support schema
 output to provide LLM-assisted diagnosis.
 
-Responses must contain one to three hypotheses with all required fields, numeric
+Responses contain zero to three hypotheses (at least one for a provisional diagnosis),
+with all required fields, numeric
 confidence between zero and one, and unique consecutive ranks starting at one.
 Ranks are sorted before reporting. Malformed JSON, missing fields, extra fields,
 and invalid types trigger deterministic diagnosis.
@@ -21,3 +22,5 @@ in their reports. Each entry identifies the stage, failure kind, model call or e
 request, and field paths with stable error codes and safe explanations. The dashboard
 shows these errors above the incident views, and JSON/Markdown exports preserve them.
 Rejected values, unknown field names, and raw exception context are not included.
+
+See [structured reasoning, selective review and promotion gates](structured-reasoning.md) for the optional reasoning policies.

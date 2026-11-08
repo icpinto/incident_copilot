@@ -6,6 +6,7 @@ from pydantic_core import PydanticCustomError
 from incident_copilot.analysis.recommendations import claim_references
 from incident_copilot.llm.validation import SEMANTIC_MESSAGES
 from incident_copilot.schemas.diagnosis import Hypothesis
+from incident_copilot.schemas.reasoning import ReviewReason
 from incident_copilot.schemas.recommendations import HypothesisActionPlan
 from incident_copilot.schemas.runtime import FailureLayer
 
@@ -17,6 +18,7 @@ class GeneratedHypothesis(BaseModel):
     rank: int = Field(ge=1, le=3)
     failure_layer: FailureLayer = "unknown"
     evidence_refs: list[str] = Field(default_factory=list, max_length=20)
+    contradicting_evidence_refs: list[str] = Field(default_factory=list, max_length=20)
     title: str
     explanation: str
     evidence: list[str]
@@ -40,6 +42,7 @@ def report_hypothesis(raw: dict, evidence_refs: list[str] | None = None) -> dict
         confidence=None, confidence_status="unavailable", model_score=raw["confidence"],
         failure_layer=raw.get("failure_layer", "unknown"),
         evidence_refs=list(dict.fromkeys((evidence_refs if evidence_refs is not None else raw.get("evidence_refs", [])) + claim_references(raw))),
+        contradicting_evidence_refs=raw.get("contradicting_evidence_refs", []),
         id=identifier, action_plan=plan,
     ).model_dump(mode="json")
 
@@ -53,6 +56,7 @@ class HypothesesResponse(BaseModel):
     diagnosis_reason: str = Field(min_length=1)
     next_checks: list[str]
     hypotheses: list[GeneratedHypothesis] = Field(min_length=0, max_length=3)
+    review_reasons: list[ReviewReason] = Field(default_factory=list, max_length=3)
 
     @field_validator("hypotheses")
     @classmethod
@@ -69,9 +73,16 @@ class HypothesesResponse(BaseModel):
         return self
 
 
-def hypotheses_schema():
+def hypotheses_schema(mode="baseline"):
     """Strict provider schema; parsing still accepts defaults in historical responses."""
     schema = HypothesesResponse.model_json_schema()
+    if mode == "baseline":
+        schema["properties"].pop("review_reasons", None)
+    return make_strict(schema)
+
+
+def make_strict(schema):
+    """Shared strict JSON-schema conversion for provider-neutral model calls."""
     def visit(node):
         if isinstance(node, dict):
             node.pop("default", None)

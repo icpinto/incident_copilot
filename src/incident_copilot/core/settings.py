@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from incident_copilot.schemas.reasoning import ReasoningMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="IC_", env_file=".env", extra="ignore")
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
     temporal_connect_retry_delay_seconds: int = Field(default=2, ge=1)
 
     llm_provider: str = "openai_compatible"
+    llm_reasoning_mode: ReasoningMode = "baseline"
     ollama_base_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "llama3.1:8b"
     openai_compatible_base_url: str = "http://localhost:4000/v1"
@@ -49,7 +52,7 @@ class Settings(BaseSettings):
     gitnexus_auth_token: str = ""
     code_graph_timeout_seconds: float = Field(default=15, gt=0, le=15)
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, __context: object, /) -> None:
         from urllib.parse import urlsplit
         endpoint = urlsplit(self.gitnexus_url)
         if endpoint.scheme not in {"http", "https"} or not endpoint.netloc or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:

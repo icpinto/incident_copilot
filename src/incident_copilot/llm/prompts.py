@@ -20,6 +20,27 @@ Return only a JSON object matching the supplied schema, without Markdown fences.
 
 DIAGNOSIS_SYSTEM_PROMPT += ACTION_PLAN_PROMPT
 
+STRUCTURED_REASONING_PROMPT = """
+Assess evidence, causal mechanism, alternatives, distinguishing checks, then conclusion.
+Use concise evidence-linked summaries in the existing response fields. In explanation,
+describe how the proposed mechanism produces the observed incident, separating observed
+facts from assumptions. In action_plan.supporting_evidence cite the original observations;
+in contradicting_evidence_refs cite contrary observations and explain their significance.
+In action_plan.missing_evidence identify essential unverified causal links. Compare only
+plausible alternatives; do not manufacture hypotheses to fill the available ranks.
+Prefer checks whose possible results distinguish the remaining explanations. Predictions
+in checks are not observations. A citation resolving to a record does not prove support.
+Preserve contrary evidence, clipping, sampling and collection limitations when revising.
+Return review_reasons from competing_causes, conflicting_evidence, causal_gap only when
+applicable, or an empty array. causal_gap means a necessary causal link is unverified.
+Return insufficient_evidence when observations do not support a causal mechanism.
+Emit only the supplied JSON contract with concise summaries, without a reasoning preamble.
+"""
+
+
+def reasoning_system_prompt(base: str, mode: str) -> str:
+    return base if mode == "baseline" else base + STRUCTURED_REASONING_PROMPT
+
 DIAGNOSIS_USER_TEMPLATE = """
 Logs summary:
 {log_summary}

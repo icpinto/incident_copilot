@@ -87,6 +87,15 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
         for event in checks.events:
             parts.append(f"- {event.stage}, assessment {event.model_call}: {event.status} "
                          f"(`{event.code}`; {event.duration_ms:.0f} ms)")
+    if report.reasoning is not None:
+        reasoning = report.reasoning
+        parts.extend(["", "## Diagnosis Reasoning", "",
+                      f"- Mode: {reasoning.mode}; prompt version: {reasoning.prompt_version}",
+                      f"- Review: {reasoning.review_status}; diagnosis model calls: {reasoning.model_calls}"])
+        if reasoning.review_reasons:
+            parts.append("- Review reasons: " + ", ".join(reasoning.review_reasons))
+        if reasoning.review_failure:
+            parts.append(f"- Review limitation: {reasoning.review_failure}")
     if report.validation_errors:
         parts.extend(["", "## Analysis Validation Errors", ""])
         for failure in report.validation_errors:
@@ -173,6 +182,9 @@ def render_markdown(report: DiagnosisReport, output_path: Path | None = None) ->
                     f"[{ref}](#evidence-{ref})" for ref in h.evidence_refs
                 ), "",
             ])
+        if h.contradicting_evidence_refs:
+            parts.extend(["- Contrary evidence: " + "; ".join(
+                f"[{ref}](#evidence-{ref})" for ref in h.contradicting_evidence_refs), ""])
         if h.action_plan:
             plan = h.action_plan
             parts.extend(["#### Supporting evidence", ""])

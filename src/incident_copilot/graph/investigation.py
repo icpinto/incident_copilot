@@ -35,6 +35,8 @@ from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.guardrails import GuardrailContext, GuardrailFailure
+from incident_copilot.llm.prompts import reasoning_system_prompt
+from incident_copilot.llm.reasoning import reasoning_summary, review_diagnosis
 from incident_copilot.llm.structured_output import report_hypothesis
 from incident_copilot.llm.validation import (
     SEMANTIC_MESSAGES,
@@ -49,6 +51,7 @@ from incident_copilot.schemas.investigation import (
     InvestigationSummary,
     ToolOutcome,
 )
+from incident_copilot.schemas.reasoning import ReviewReason
 from incident_copilot.schemas.recommendations import HypothesisActionPlan
 from incident_copilot.schemas.runtime import FailureLayer
 from incident_copilot.schemas.validation import AnalysisValidationError
@@ -133,6 +136,7 @@ class InvestigationDecision(BaseModel):
     hypotheses: list[WorkingHypothesis] = Field(min_length=0, max_length=3)
     unresolved_gaps: list[str] = Field(max_length=10)
     requests: list[EvidenceRequest] = Field(max_length=4)
+    review_reasons: list[ReviewReason] = Field(default_factory=list, max_length=3)
 
     @model_validator(mode="after")
     def coherent(self):
@@ -162,8 +166,10 @@ def redact(value: Any, settings):
     return redact_evidence(value, settings)
 
 
-def strict_schema() -> dict:
+def strict_schema(mode="baseline") -> dict:
     schema = InvestigationDecision.model_json_schema()
+    if mode == "baseline":
+        schema["properties"].pop("review_reasons", None)
     def visit(node):
         if isinstance(node, dict):
             node.pop("default", None)
@@ -182,13 +188,16 @@ def strict_schema() -> dict:
 
 def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict | None = None) -> str:
     """Select bounded, valid JSON; never cut a serialized JSON value mid-string."""
-    response_schema = strict_schema()
+    mode = (state.get("reasoning") or {}).get("mode", "baseline")
+    response_schema = strict_schema(mode)
+    system_prompt = reasoning_system_prompt(SYSTEM_PROMPT, mode)
     schema_bytes = len(encoded(response_schema))
-    available = MAX_PROMPT_BYTES - len(SYSTEM_PROMPT.encode()) - schema_bytes - 256
+    available = MAX_PROMPT_BYTES - len(system_prompt.encode()) - schema_bytes - 256
     previous = [{k: h.get(k) for k in ("id", "title", "evidence_refs", "contradicting_evidence_refs")}
                 for h in state.get("working_hypotheses", [])]
     payload = {
         "task": "Assess the incident and choose the next evidence requests or finish.",
+        "retrieval_guidance": ("Link each request to hypothesis_id and use question to state the uncertainty and distinguishing outcomes. If there is no hypothesis yet, use null and state the gap in unresolved_gaps. Prioritize useful retrieval before final review." if mode != "baseline" else "Use explicit evidence questions."),
         "response_schema": response_schema,
         "budget": {k: budget[k] for k in ("rounds", "model_calls", "tool_calls")},
         "initial_candidates": [{"file_path": c.get("file_path"), "symbol_name": c.get("symbol_name"),
@@ -290,7 +299,9 @@ def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
         stop_reason=reason, incomplete=bool(reason and (reason != "model_finished" or gaps)),
         unresolved_gaps=gaps,
     )
-    return {"investigation": summary.model_dump(mode="json"),
+    reasoning = dict(state.get("reasoning") or reasoning_summary("baseline"))
+    reasoning["model_calls"] = budget["model_calls"]
+    return {"reasoning": reasoning, "investigation": summary.model_dump(mode="json"),
             "retrieved_evidence": list(state.get("evidence_records", {}).values()),
             "investigation_events": state.get("investigation_events", []),
             "graph_context": state.get("graph_context"),
@@ -315,6 +326,7 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
                  pending_requests=[], retrieval_outcomes={}, investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",
                  fallback_reason=None, validation_errors=[])
+    state["reasoning"] = reasoning_summary(settings.llm_reasoning_mode)
     state["omitted_initial_context_count"] = omitted
     return state
 
@@ -328,6 +340,15 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
     async with execution_lock(directory / "execution.lock"):
         journal = InvestigationStore(directory / "requests.sqlite")
         journal.initialize(settings.agentic_timeout_seconds)
+        pinned = journal.get("reasoning_config")
+        if pinned is None:
+            # Existing executions predate versioned reasoning and resume as baseline.
+            pinned = reasoning_summary("baseline" if journal.get("snapshot") else settings.llm_reasoning_mode)
+            journal.put("reasoning_config", pinned)
+        settings = settings.model_copy(update={"llm_reasoning_mode": pinned["mode"]})
+        mode = settings.llm_reasoning_mode
+        version_available = pinned["prompt_version"] == reasoning_summary(mode)["prompt_version"]
+        system_prompt = reasoning_system_prompt(SYSTEM_PROMPT, mode)
         guardrails = (GuardrailContext(settings, journal=journal,
                                       deadline=journal.budget()["deadline"])
                       if settings.guardrails_mode != "off" or journal.get("guardrails") else None)
@@ -416,13 +437,18 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     async with asyncio.timeout(max(0.001, journal.budget()["deadline"] - time.time())):
                         client = (get_client(settings, guardrail_context=guardrails) if guardrails
                                   else get_client(settings))
-                        response = await client.complete(prompt=prompt, system_prompt=SYSTEM_PROMPT,
-                                                         response_schema=strict_schema())
+                        response = await client.complete(prompt=prompt, system_prompt=system_prompt,
+                                                         response_schema=strict_schema(mode))
                     if isinstance(response, str) and len(response.encode()) > MAX_EVIDENCE_BYTES:
                         raise validation_failure(stage="investigation_assessment", kind="limit",
                                                  code="response_too_large", model_call=journal.budget()["model_calls"])
                     decision = validate_response(response, InvestigationDecision,
                         stage="investigation_assessment", model_call=journal.budget()["model_calls"])
+                    if mode != "baseline":
+                        ids = {h.id for h in decision.hypotheses}
+                        for index, request in enumerate(decision.requests):
+                            if (request.hypothesis_id is not None and request.hypothesis_id not in ids) or (request.hypothesis_id is None and not decision.unresolved_gaps):
+                                raise validation_failure(stage="investigation_assessment", kind="semantic", code="hypothesis_request_mismatch", path=["requests", index, "hypothesis_id"], model_call=journal.budget()["model_calls"])
                     shown = json.loads(prompt)["evidence"]
                     known = {item["id"] for item in shown}
                     known.update(ref for hypothesis in state.get("working_hypotheses", [])
@@ -586,6 +612,38 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             await publish(dict(state) | result)
             return result
 
+        async def review(state):
+            decision = state.get("assessment_decision", {})
+            summary = dict(state.get("reasoning") or pinned)
+            summary["model_calls"] = journal.budget()["model_calls"]
+            reason = state.get("investigation_progress", {}).get("stop_reason", "")
+            allowed = {"model_finished", "round_limit", "tool_call_limit", "model_call_limit", "no_new_evidence", "repeated_requests"}
+            if not decision or reason not in allowed:
+                if mode == "structured_review":
+                    summary.update(review_status="skipped", review_failure=reason or "no_valid_assessment")
+                return {"reasoning": summary}
+            saved = journal.get("terminal_review")
+            if saved is None:
+                if journal.get("review_reserved"):
+                    # An interrupted external review cannot consume a second call on retry.
+                    saved = {"decision": decision, "reasoning": dict(summary, review_status="failed", review_failure="review_interrupted"), "validation_errors": []}
+                else:
+                    client = get_client(settings, guardrail_context=guardrails) if guardrails else get_client(settings)
+                    saved = await review_diagnosis(
+                        decision, list(state["evidence_records"].values()), state.get("runbooks", []),
+                        summary=summary, client=client, deadline=journal.budget()["deadline"],
+                        reserve=lambda: journal.reserve("model_calls", MAX_MODEL_CALLS, once_key="review_reserved"),
+                        guardrail_context=guardrails,
+                    )
+                saved = redact(saved, settings)
+                journal.put("terminal_review", saved)
+            result = {"reasoning": saved["reasoning"], "reasoning_draft": decision,
+                      "assessment_decision": saved["decision"], "working_hypotheses": saved["decision"]["hypotheses"],
+                      "validation_errors": state.get("validation_errors", []) + saved["validation_errors"],
+                      "execution_budget": journal.budget()}
+            await publish(dict(state) | result)
+            return result
+
         async def finalize(state):
             if guardrails:
                 state["guardrails"] = guardrails.summary()
@@ -599,7 +657,7 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             for raw in state.get("working_hypotheses", []):
                 refs = list(dict.fromkeys(raw["evidence_refs"] + raw["contradicting_evidence_refs"] + claim_references(raw)))
                 if set(refs) <= known:
-                    hypotheses.append(report_hypothesis(raw, refs))
+                    hypotheses.append(report_hypothesis(raw, raw["evidence_refs"]))
             decision = state.get("assessment_decision", {})
             # A valid abstention remains an LLM assessment even with no hypotheses.
             outcome = ({
@@ -620,18 +678,26 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
 
         graph = StateGraph(DiagnosisState)
         for name, function in (("assess", assess), ("control", control), ("retrieve", retrieve),
-                               ("merge", merge), ("finalize", finalize)):
+                               ("merge", merge), ("review", review), ("finalize", finalize)):
             graph.add_node(name, function)
         graph.set_entry_point("assess")
         graph.add_edge("assess", "control")
-        graph.add_conditional_edges("control", lambda s: "finalize" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve")
+        graph.add_conditional_edges("control", lambda s: "review" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve")
         graph.add_edge("retrieve", "merge")
-        graph.add_conditional_edges("merge", lambda s: "finalize" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve" if s.get("pending_requests") else "assess")
+        graph.add_conditional_edges("merge", lambda s: "review" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve" if s.get("pending_requests") else "assess")
+        graph.add_edge("review", "finalize")
         graph.add_edge("finalize", END)
         async with AsyncSqliteSaver.from_conn_string(str(directory / "checkpoints.sqlite")) as checkpointer:
             app = graph.compile(checkpointer=checkpointer)
             config = {"configurable": {"thread_id": runtime.execution_id}, "recursion_limit": 64}
             saved = await app.aget_state(config)
+            if not version_available:
+                if journal.get("final"):
+                    return journal.get("final")
+                prior = dict(saved.values) if saved.values else _bootstrap(payload, snapshot, settings)
+                prior["reasoning"] = dict(pinned, review_status="skipped", review_failure="reasoning_version_unavailable")
+                prior["investigation_progress"] = {"stop_reason": "reasoning_version_unavailable"}
+                return prior | await finalize(prior)
             if saved.values:
                 # Never replace durable initial inputs with a retry's new snapshot.
                 initial = None

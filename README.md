@@ -27,6 +27,10 @@ The diagnosis pipeline is:
 5. LLM-assisted hypothesis ranking
 6. Markdown / JSON diagnosis report
 
+Optional [structured causal reasoning and selective review](docs/structured-reasoning.md)
+apply to both diagnosis modes. Baseline remains the default until paired human evaluation
+supports promotion.
+
 Reports separate raw localization strength from diagnosis confidence and allow an
 explicit insufficient-evidence outcome. Diagnosis probabilities remain unavailable
 pending labeled calibration data. See [confidence semantics and human review](docs/diagnosis-confidence.md).

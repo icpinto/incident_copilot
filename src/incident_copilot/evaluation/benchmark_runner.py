@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import copy
+import hashlib
 import json
 import time
 import tracemalloc
@@ -22,16 +23,24 @@ from incident_copilot.reporting.report_builder import build_report
 
 
 async def run_comparison(root: Path, compose: Path | None, logs: str, config: Settings,
-                         actual_file: str | None = None, expected_edges: list | None = None) -> dict:
+                         actual_file: str | None = None, expected_edges: list | None = None, *,
+                         reasoning_modes: bool = False, model_version: str | None = None) -> dict:
     """Compare graph enrichment and iterative reasoning from one indexed source snapshot."""
     await asyncio.to_thread(index_repository, root, compose, config.index_db_path)
     candidates, parsed = await asyncio.to_thread(rank_candidates, root, config.index_db_path, logs, config.top_k_candidates)
     files = {}
     for candidate in candidates.items[:config.deep_analysis_top_n]:
         files[candidate.file_path] = await asyncio.to_thread(deep_analyze_candidate, root / candidate.file_path)
-    state: dict[str, Any] = {'incident_id': 'code-graph-comparison', 'parsed_log': parsed.model_dump(),
+    state: dict[str, Any] = {'incident_id': 'benchmark-' + hashlib.sha256((str(root) + logs).encode()).hexdigest()[:20], 'parsed_log': parsed.model_dump(),
              'candidates': [c.model_dump() for c in candidates.items], 'deep_analysis': files,
              'candidate_limit': config.top_k_candidates}
+    if reasoning_modes:
+        from incident_copilot.analysis.evidence_tools import redact_evidence
+        from incident_copilot.evaluation.reasoning_benchmark import run_reasoning_comparison
+        context = await retrieve_graph_context(root, config.index_db_path, state['candidates'],
+                                              config.model_copy(update={'code_graph_enabled': True}))
+        comparison = await run_reasoning_comparison(state | {'graph_context': context}, root, config, model_version)
+        return redact_evidence({'reasoning_comparison': comparison}, config)
     single_pass = config.model_copy(update={'agentic_enabled': False})
     started = time.monotonic()
     baseline = await run_diagnosis_graph(copy.deepcopy(state), single_pass)
@@ -76,7 +85,7 @@ async def run_comparison(root: Path, compose: Path | None, logs: str, config: Se
         summary = report.investigation
         return {
             'latency_seconds': seconds,
-            'model_calls': summary.model_calls if summary else int(bool(report.candidates)),
+            'model_calls': report.reasoning.model_calls if report.reasoning else summary.model_calls if summary else int(bool(report.candidates)),
             'tool_calls': summary.tool_calls if summary else 0,
             'retrieved_evidence_count': len(known),
             'retrieved_content_utf8_bytes': sum(len(item.content.encode('utf-8')) for item in report.retrieved_evidence),
@@ -120,6 +129,8 @@ async def run_comparison(root: Path, compose: Path | None, logs: str, config: Se
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--reasoning-modes', action='store_true', help='Compare all three policies in both inference modes')
+    parser.add_argument('--model-version', help='Pinned upstream model version for reasoning comparisons')
     parser.add_argument('--repo-root', required=True, type=Path)
     parser.add_argument('--compose-path', type=Path)
     source = parser.add_mutually_exclusive_group(required=True)
@@ -128,6 +139,8 @@ def main():
     parser.add_argument('--actual-file')
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
+    if args.reasoning_modes and not args.model_version:
+        parser.error('--reasoning-modes requires --model-version')
     config = Settings()
     config.index_db_path = config.data_dir / 'benchmarks' / str(uuid4()) / 'index.db'
     case = next((c for c in GOLDEN_CASES if c['id'] == args.golden_case), None)
@@ -135,7 +148,8 @@ def main():
             if case else args.log_file.read_text(encoding='utf-8'))
     result = asyncio.run(run_comparison(args.repo_root.resolve(), args.compose_path, logs, config,
                                        case['actual_file'] if case else args.actual_file,
-                                       case['expected_edges'] if case else None))
+                                       case['expected_edges'] if case else None,
+                                       reasoning_modes=args.reasoning_modes, model_version=args.model_version))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f'Saved paired comparison to {args.output}')

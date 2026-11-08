@@ -10,6 +10,7 @@ from .code_graph import GraphContext
 from .deployment import DeploymentContext, SourceResolution
 from .investigation import EvidenceItem, InvestigationEvent, InvestigationSummary
 from .logs import IncidentContext
+from .reasoning import ReasoningSummary
 from .recommendations import ActionEvent, HypothesisActionPlan, RunbookSnapshot
 from .runtime import FailureLayer
 
@@ -25,6 +26,7 @@ class Hypothesis(BaseModel):
     explanation: str
     evidence: list[str]
     evidence_refs: list[str] = Field(default_factory=list)
+    contradicting_evidence_refs: list[str] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     confidence_status: Literal["unavailable", "uncalibrated", "calibrated"] = "unavailable"
     model_score: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -47,6 +49,7 @@ class Hypothesis(BaseModel):
 
 class DiagnosisReport(BaseModel):
     incident_id: str
+    reasoning: ReasoningSummary | None = None
     action_plan_version: Literal[1] | None = None
     runbooks: list[RunbookSnapshot] = Field(default_factory=list)
     recommendation_limitations: list[str] = Field(default_factory=list)

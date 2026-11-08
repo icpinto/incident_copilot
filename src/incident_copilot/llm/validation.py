@@ -15,6 +15,10 @@ T = TypeVar("T", bound=BaseModel)
 
 # Custom validators use these stable codes instead of unstructured ValueError text.
 SEMANTIC_MESSAGES = {
+    "review_discarded_gap": "Review must preserve essential evidence gaps without new observations.",
+    "review_new_hypothesis": "Review must retain the identities of existing hypotheses.",
+    "review_status_upgrade": "Review cannot promote an insufficient-evidence draft without new observations.",
+    "hypothesis_request_mismatch": "Retrieval must identify an existing hypothesis or a stated evidence gap.",
     "action_plan_required": "New hypotheses require a structured action plan.",
     "invalid_runbook_reference": "Runbook or section was not supplied to the model.",
     "mitigation_requires_diagnosis": "Insufficient-evidence diagnoses require checks before mitigation proposals.",

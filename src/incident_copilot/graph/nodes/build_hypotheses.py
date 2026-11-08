@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import time
 
 from incident_copilot.analysis.evidence_tools import redact_evidence
 from incident_copilot.analysis.initial_evidence import initial_evidence
@@ -9,7 +11,16 @@ from incident_copilot.correlation.log_parser import primary_log, scope_notice
 from incident_copilot.graph.state import DiagnosisState
 from incident_copilot.llm.client import get_client
 from incident_copilot.llm.guardrails import GuardrailContext, GuardrailFailure
-from incident_copilot.llm.prompts import DIAGNOSIS_SYSTEM_PROMPT, DIAGNOSIS_USER_TEMPLATE
+from incident_copilot.llm.prompts import (
+    DIAGNOSIS_SYSTEM_PROMPT,
+    DIAGNOSIS_USER_TEMPLATE,
+    reasoning_system_prompt,
+)
+from incident_copilot.llm.reasoning import (
+    SINGLE_PASS_TIMEOUT_SECONDS,
+    reasoning_summary,
+    review_diagnosis,
+)
 from incident_copilot.llm.structured_output import (
     HypothesesResponse,
     hypotheses_schema,
@@ -50,13 +61,14 @@ def fallback_diagnosis(state: DiagnosisState) -> dict:
     }
 
 
-def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = None) -> str:
+def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = None, mode="baseline") -> str:
+    system_prompt = reasoning_system_prompt(DIAGNOSIS_SYSTEM_PROMPT, mode)
     original = state.get("parsed_log", {})
     parsed = primary_log(original)
     context = state.get("incident_context") or original.get("incident_context")
     candidates = state.get("candidates", [])
     deep_analysis = state.get("deep_analysis", {})
-    response_schema = hypotheses_schema()
+    response_schema = hypotheses_schema(mode)
     records, omitted = initial_evidence(state, state.get("source_snapshot") or {"repository": "", "revision": ""})
     if omitted:
         state["recommendation_limitations"] = state.get("recommendation_limitations", []) + [f"{omitted} initial observations omitted by evidence limits."]
@@ -85,7 +97,7 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
             response_schema=json.dumps(response_schema),
         )
     prompt = render()
-    while len(prompt.encode()) + len(DIAGNOSIS_SYSTEM_PROMPT.encode()) > 32768:
+    while len(prompt.encode()) + len(system_prompt.encode()) > 32768:
         if content["deep_analysis"]:
             content["deep_analysis"] = dict(content["deep_analysis"])
             content["deep_analysis"].pop(next(reversed(content["deep_analysis"])))
@@ -113,7 +125,7 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
         else:
             break
         prompt = render()
-    if len(prompt.encode()) + len(DIAGNOSIS_SYSTEM_PROMPT.encode()) > 32768:
+    if len(prompt.encode()) + len(system_prompt.encode()) > 32768:
         from incident_copilot.llm.validation import validation_failure
         raise validation_failure(stage="hypothesis_generation", kind="limit", code="prompt_limit", model_call=1)
     state["retrieved_evidence"] = content["citable_evidence"]
@@ -151,6 +163,10 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
     state["validation_errors"] = []
     state["guardrails"] = None
     config = runtime_settings or settings
+    mode = config.llm_reasoning_mode
+    state["reasoning"] = reasoning_summary(mode)
+    system_prompt = reasoning_system_prompt(DIAGNOSIS_SYSTEM_PROMPT, mode)
+    deadline = time.time() + SINGLE_PASS_TIMEOUT_SECONDS
     state = redact_evidence(state, config)
     candidates = state.get("candidates", [])
     state["retrieved_evidence"] = state.get("runtime_evidence", [])
@@ -159,12 +175,12 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
         state.update(fallback_diagnosis(state))
         return state
 
-    response_schema = hypotheses_schema()
+    response_schema = hypotheses_schema(mode)
     config = runtime_settings or settings
     context = GuardrailContext(config) if config.guardrails_mode != "off" else None
     view = {}
     try:
-        prompt = build_diagnosis_prompt(state, policy_view=view)
+        prompt = build_diagnosis_prompt(state, policy_view=view, mode=mode)
     except AnalysisValidationFailure as exc:
         state["validation_errors"] = [exc.diagnostic.model_dump(mode="json")]
         state["fallback_reason"] = "prompt_limit"
@@ -186,11 +202,11 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
     try:
         client = (get_client(runtime_settings, guardrail_context=context) if context
                   else get_client(runtime_settings))
-        text = await client.complete(
-            prompt=prompt,
-            system_prompt=DIAGNOSIS_SYSTEM_PROMPT,
-            response_schema=response_schema,
-        )
+        state["reasoning"]["model_calls"] = 1
+        async with asyncio.timeout(max(0.001, deadline - time.time()) if mode != "baseline" else None):
+            text = await client.complete(
+                prompt=prompt, system_prompt=system_prompt, response_schema=response_schema,
+            )
     except GuardrailFailure as exc:
         state["fallback_reason"] = exc.reason
         state.update(fallback_diagnosis(state))
@@ -208,7 +224,7 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
                               stage="hypothesis_generation", model_call=1,
                               diagnosis_status=response.diagnosis_status)
         for index, hypothesis in enumerate(response.hypotheses):
-            if set(hypothesis.evidence_refs) - known:
+            if set(hypothesis.evidence_refs + hypothesis.contradicting_evidence_refs) - known:
                 from incident_copilot.llm.validation import validation_failure
                 raise validation_failure(stage="hypothesis_generation", kind="semantic", code="invalid_evidence_reference",
                                          path=["hypotheses", index, "evidence_refs"], model_call=1)
@@ -218,7 +234,17 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
         state["validation_errors"] = [exc.diagnostic.model_dump(mode="json")]
         state.update(fallback_diagnosis(state))
     else:
-        state.update(response.model_dump(exclude={"hypotheses"}))
-        state["hypotheses"] = [report_hypothesis(item.model_dump()) for item in response.hypotheses]
+        draft = response.model_dump()
+        state["reasoning_draft"] = draft
+        reviewed = await review_diagnosis(
+            draft, state.get("retrieved_evidence", []), state.get("runbooks", []),
+            summary=state["reasoning"], client=client, deadline=deadline,
+            reserve=lambda: True, guardrail_context=context,
+        )
+        state["reasoning"] = reviewed["reasoning"]
+        state["validation_errors"].extend(reviewed["validation_errors"])
+        final = reviewed["decision"]
+        state.update({k: v for k, v in final.items() if k not in {"hypotheses", "review_reasons"}})
+        state["hypotheses"] = [report_hypothesis(item) for item in final["hypotheses"]]
         state["engine"] = "deterministic+llm"
     return state

@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ValidationStage = Literal["hypothesis_generation", "investigation_assessment", "evidence_retrieval"]
+ValidationStage = Literal["hypothesis_generation", "investigation_assessment", "evidence_retrieval", "diagnosis_review"]
 ValidationKind = Literal["json", "schema", "semantic", "limit"]
 
 

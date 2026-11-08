@@ -87,6 +87,7 @@ async def test_adapters_send_schema_and_graph_keeps_valid_llm_diagnosis(monkeypa
             "next_checks",
             "failure_layer",
             "evidence_refs",
+            "contradicting_evidence_refs",
             "action_plan",
         }
         assert item["properties"]["confidence"]["maximum"] == 1

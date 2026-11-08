@@ -2,6 +2,8 @@ from typing import Any, TypedDict
 
 
 class DiagnosisState(TypedDict, total=False):
+    reasoning: dict[str, Any] | None
+    reasoning_draft: dict[str, Any]
     incident_id: str
     action_plan_version: int | None
     runbooks: list[dict[str, Any]]

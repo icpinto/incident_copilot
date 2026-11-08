@@ -72,6 +72,9 @@ class GuardrailContext:
             or "secret" in key
             or "auth_token" in key
         }
+        # Historical baseline checkpoints predate the reasoning-mode setting.
+        if settings.llm_reasoning_mode == "baseline":
+            relevant.pop("llm_reasoning_mode", None)
         self._fingerprint = hashlib.sha256(
             json.dumps(relevant, sort_keys=True).encode()
         ).hexdigest()

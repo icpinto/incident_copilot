@@ -1,5 +1,5 @@
 import { Panel } from './components';
-import type { EvidenceItem, InvestigationEvent, InvestigationSummary } from './types';
+import type { EvidenceItem, InvestigationEvent, InvestigationSummary, ReasoningSummary } from './types';
 
 const readable = (value: string) => value.replaceAll('_', ' ');
 const evidenceAnchor = (id: string) => `retrieved-evidence-${id}`;
@@ -36,5 +36,18 @@ export function Investigation({ summary, evidence, events }: {
         <pre className="code-block"><code>{item.content || JSON.stringify(item.data, null, 2)}</code></pre>
       </details>
     </article>)}</div>}
+  </Panel>;
+}
+
+export function ReasoningDetails({ summary }: { summary?: ReasoningSummary | null }) {
+  if (!summary) return null;
+  return <Panel title="Diagnosis reasoning" subtitle="Causal explanations are assessed against collected evidence.">
+    <dl className="investigation-summary">
+      <div><dt>Approach</dt><dd>{readable(summary.mode)}</dd></div>
+      <div><dt>Evidence review</dt><dd>{readable(summary.review_status)}</dd></div>
+      <div><dt>Diagnosis model calls</dt><dd>{summary.model_calls}</dd></div>
+    </dl>
+    {!!summary.review_reasons.length && <p>Review reasons: {summary.review_reasons.map(readable).join('; ')}</p>}
+    {summary.review_failure && <p>Review limitation: {readable(summary.review_failure)}. The latest valid diagnosis is retained.</p>}
   </Panel>;
 }

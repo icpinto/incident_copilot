@@ -16,6 +16,7 @@ from incident_copilot.schemas.investigation import (
     InvestigationSummary,
 )
 from incident_copilot.schemas.logs import ParsedLog
+from incident_copilot.schemas.reasoning import ReasoningSummary
 from incident_copilot.schemas.validation import AnalysisValidationError
 
 
@@ -96,6 +97,7 @@ class StageEvent(BaseModel):
 
 
 class IncidentEvidence(BaseModel):
+    reasoning: ReasoningSummary | None = None
     raw_log: str = ""
     parsed_log: ParsedLog | None = None
     candidates: list[CandidateLocation] = Field(default_factory=list)
