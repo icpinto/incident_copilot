@@ -1,0 +1,24 @@
+# The application uses this alias for both diagnosis and iterative investigation.
+# Change the upstream through LITELLM_* variables without changing the app's model.
+model_list:
+  - model_name: incident-diagnosis
+    litellm_params:
+      model: os.environ/LITELLM_MODEL
+      api_base: os.environ/LITELLM_API_BASE
+      api_key: os.environ/LITELLM_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+router_settings:
+  # Allow five minutes for inference; the application waits 315 seconds.
+  timeout: 300
+  num_retries: 0
+
+litellm_settings:
+  # Unsupported schema parameters must fail rather than silently weaken output.
+  drop_params: false
+  turn_off_message_logging: true
+
+  # OTel v2 preserves application trace context; content stays in app spans.
+  callbacks: ["langfuse_otel"]

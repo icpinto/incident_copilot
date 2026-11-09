@@ -16,6 +16,7 @@ from incident_copilot.schemas.investigation import (
     InvestigationSummary,
 )
 from incident_copilot.schemas.logs import ParsedLog
+from incident_copilot.schemas.observability import TraceReference
 from incident_copilot.schemas.reasoning import ReasoningSummary
 from incident_copilot.schemas.validation import AnalysisValidationError
 
@@ -115,6 +116,7 @@ class IncidentEvidence(BaseModel):
 
 
 class IncidentRecord(BaseModel):
+    observability: TraceReference | None = None
     id: str
     title: str
     repository_id: str

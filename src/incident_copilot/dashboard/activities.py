@@ -11,6 +11,7 @@ from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.indexing.repo_indexer import index_repository
 from incident_copilot.indexing.service_mapper import build_service_map
+from incident_copilot.observability.runtime import dashboard_activity
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.code_graph import GraphPreparation
@@ -52,6 +53,7 @@ async def validate_repository_activity(profile: dict) -> dict:
 
 
 @activity.defn
+@dashboard_activity
 async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
     """Secrets and evidence remain in the shared store, outside workflow histories."""
     store = ControlStore(control_path())
@@ -250,6 +252,7 @@ async def dashboard_stage_activity(incident_id: str, stage: str) -> dict:
             "investigation", "retrieved_evidence", "investigation_events", "graph_context", "validation_errors", "guardrails", "reasoning",
         ) if key in state})
         report = build_report(state).model_dump(mode="json")
+        report["observability"] = run.get("observability") or report.get("observability")
         report["repository_source"] = run.get("repository_source")
         report["deployment_context"] = run.get("deployment_context")
         report["source_resolution"] = run.get("source_resolution", {"status": "unknown"})

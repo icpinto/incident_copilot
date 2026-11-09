@@ -1,5 +1,7 @@
 import httpx
 
+from incident_copilot.observability.runtime import model_request
+
 
 class OllamaClient:
     def __init__(self, base_url: str, model: str) -> None:
@@ -23,8 +25,16 @@ class OllamaClient:
             payload["system"] = system_prompt
         if response_schema is not None:
             payload["format"] = response_schema
-        async with httpx.AsyncClient(timeout=315) as client:
-            response = await client.post(f"{self.base_url}/api/generate", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("response", "")
+        with model_request(prompt, system_prompt, self.model, direct=True,
+                           response_schema=response_schema) as observation:
+            observation.set(**{"gen_ai.request.model": self.model,
+                               "langfuse.observation.model.name": self.model})
+            async with httpx.AsyncClient(timeout=315) as client:
+                response = await client.post(f"{self.base_url}/api/generate", json=payload)
+                response.raise_for_status()
+                data = response.json()
+                observation.set(**{"gen_ai.usage.input_tokens": data.get("prompt_eval_count"),
+                                   "gen_ai.usage.output_tokens": data.get("eval_count")})
+                text = data.get("response", "")
+                observation.content(output=text)
+                return text

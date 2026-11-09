@@ -288,3 +288,27 @@ describe('dashboard workflows', () => {
     await waitFor(() => expect(requests).toEqual([{ values: { agentic_enabled: true }, reset: [] }]));
   });
 });
+
+
+describe('Langfuse trace navigation', () => {
+  it('opens the saved trace from the execution tab', async () => {
+    const traceUrl = 'http://localhost:3000/project/incident-copilot/traces/' + 'a'.repeat(32);
+    mockFetch(() => ({ ...run, observability: { trace_id: 'a'.repeat(32), trace_url: traceUrl } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    await screen.findByText('Payment timeout');
+    await userEvent.click(screen.getByRole('tab', { name: 'Run details' }));
+    const link = await screen.findByRole('link', { name: 'Open in Langfuse' });
+    expect(link).toHaveAttribute('href', traceUrl);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('keeps historical incidents usable without a trace', async () => {
+    mockFetch(() => run);
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    await screen.findByText('Payment timeout');
+    await userEvent.click(screen.getByRole('tab', { name: 'Run details' }));
+    expect(screen.queryByRole('link', { name: 'Open in Langfuse' })).not.toBeInTheDocument();
+    expect(screen.getByText('Workflow ID')).toBeInTheDocument();
+  });
+});

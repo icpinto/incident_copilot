@@ -25,6 +25,7 @@ from incident_copilot.analysis.code_graph import (
 from incident_copilot.core.settings import Settings
 from incident_copilot.indexing.storage import IndexStorage
 from incident_copilot.llm.validation import schema_diagnostic, validation_failure
+from incident_copilot.observability import observed
 from incident_copilot.schemas.index import FileRecord
 from incident_copilot.schemas.investigation import (
     EvidenceItem,
@@ -393,6 +394,7 @@ class EvidenceTools:
             outcome.status = "empty"
         return outcome
 
+    @observed("evidence.retrieve")
     async def execute(self, request: EvidenceRequest, request_id: str) -> ToolOutcome:
         started = time.monotonic()
         if request.tool == "get_runtime_evidence":

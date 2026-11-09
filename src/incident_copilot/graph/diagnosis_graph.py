@@ -8,6 +8,7 @@ from incident_copilot.graph.nodes.enrich_candidates import enrich_candidates_nod
 from incident_copilot.graph.nodes.finalize_report import finalize_report_node
 from incident_copilot.graph.nodes.normalize_logs import normalize_logs_node
 from incident_copilot.graph.nodes.select_candidates import select_candidates_node
+from incident_copilot.observability import observed
 from incident_copilot.tools.git_local import clean_revision
 
 try:
@@ -20,6 +21,7 @@ from .nodes.build_hypotheses import build_hypotheses_node
 from .state import DiagnosisState
 
 
+@observed("diagnosis.pipeline")
 async def run_diagnosis_graph(payload: dict[str, Any], runtime_settings=None, runtime_context=None) -> DiagnosisState:
     payload = dict(payload)
     payload["action_plan_version"] = 1

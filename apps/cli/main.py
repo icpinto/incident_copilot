@@ -20,6 +20,7 @@ from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.graph.investigation_runtime import InvestigationRuntime
 from incident_copilot.indexing.repo_indexer import index_repository
+from incident_copilot.observability.runtime import entrypoint
 from incident_copilot.reporting.markdown_renderer import render_markdown
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.workflows.temporal_activities import runtime_settings
@@ -37,6 +38,7 @@ def reindex(repo_root: Path, compose_path: Path | None = None) -> None:
 
 
 @app.command()
+@entrypoint
 def diagnose(
     repo_root: Path,
     compose_path: Path | None = None,
@@ -53,7 +55,10 @@ def diagnose(
         log_text = log_file.read_text(encoding="utf-8", errors="ignore")
     assert log_text is not None
 
-    execution_id = str(uuid4())
+    from incident_copilot.observability.runtime import current_execution_id, execution_metadata
+    from incident_copilot.dashboard.config import fingerprint
+    execution_id = current_execution_id() or str(uuid4())
+    execution_metadata(settings, incident_id=execution_id, config_revision=fingerprint(settings.model_dump(mode="json")))
     settings = settings.model_copy(update={
         "index_db_path": settings.index_db_path.parent / "runs" / execution_id / settings.index_db_path.name,
     })
@@ -75,7 +80,7 @@ def diagnose(
     state = asyncio.run(
         run_diagnosis_graph(
             {
-                "incident_id": str(uuid4()),
+                "incident_id": execution_id,
                 "parsed_log": parsed_log.model_dump(),
                 "candidates": [c.model_dump() for c in candidates.items],
                 "deep_analysis": deep_analysis,
@@ -94,6 +99,8 @@ def diagnose(
         output_json.write_text(json.dumps(report.model_dump(), indent=2), encoding="utf-8")
     markdown = render_markdown(report, output_md)
     console.print(Markdown(markdown))
+    if report.observability:
+        console.print(f"Langfuse trace: {report.observability.trace_url}")
 
 
 if __name__ == "__main__":

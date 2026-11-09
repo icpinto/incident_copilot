@@ -254,7 +254,8 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
     if policy_view is not None:
         policy_view.update({key: value for key, value in payload.items()
                             if key not in {"task", "response_schema", "budget", "analysis_scope"}})
-    return result
+    from incident_copilot.observability.prompts import categorized
+    return categorized(result, payload, compact=True)
 
 
 def request_key(request: EvidenceRequest, snapshot: dict) -> str:
@@ -437,8 +438,11 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     async with asyncio.timeout(max(0.001, journal.budget()["deadline"] - time.time())):
                         client = (get_client(settings, guardrail_context=guardrails) if guardrails
                                   else get_client(settings))
-                        response = await client.complete(prompt=prompt, system_prompt=system_prompt,
-                                                         response_schema=strict_schema(mode))
+                        from incident_copilot.observability import call_scope
+                        with call_scope("investigation", round=journal.budget()["rounds"],
+                                        model_call=journal.budget()["model_calls"]):
+                            response = await client.complete(prompt=prompt, system_prompt=system_prompt,
+                                                             response_schema=strict_schema(mode))
                     if isinstance(response, str) and len(response.encode()) > MAX_EVIDENCE_BYTES:
                         raise validation_failure(stage="investigation_assessment", kind="limit",
                                                  code="response_too_large", model_call=journal.budget()["model_calls"])

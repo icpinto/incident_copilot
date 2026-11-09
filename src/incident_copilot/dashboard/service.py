@@ -7,6 +7,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from incident_copilot.observability import temporal_interceptors
+
 from .config import Configuration, fingerprint
 from .models import IncidentRecord, IncidentSubmission, Overview, RepositoryProfile
 from .repository_source import public_snapshot_payload, repository_root, source_identity
@@ -26,7 +28,8 @@ class TemporalGateway:
         key = (config.temporal_host, config.temporal_namespace)
         if key not in self.clients:
             self.clients[key] = await asyncio.wait_for(
-                Client.connect(key[0], namespace=key[1]), timeout=5,
+                Client.connect(key[0], namespace=key[1],
+                               interceptors=temporal_interceptors()), timeout=5,
             )
         return self.clients[key]
 
@@ -243,6 +246,8 @@ class DashboardService:
             if deployment_context:
                 for item in capture["events"]:
                     item["event"]["deployment_context"] = deployment_context
+        from incident_copilot.observability import new_trace
+        record["observability"], record["_trace_context"] = new_trace(incident_id)
         created = self.store.create_incident(record, self.configuration.infrastructure, capture=capture,
                                    original_batch_id=original.get("error_batch_id") if original else None,
                                    collector_event=collector_event)
@@ -262,7 +267,9 @@ class DashboardService:
                 return self.public(self.store.update("incidents", incident_id, {
                     "status": "canceled", "completed_at": utcnow(), "connection_error": None,
                 }))
-            await self.gateway.cancel(incident_id)
+            from incident_copilot.observability import attach_context
+            with attach_context(run.get("_trace_context")):
+                await self.gateway.cancel(incident_id)
             return self.public(self.store.update("incidents", incident_id, {
                 "connection_error": "Cancellation requested. Waiting for the worker to acknowledge it.",
             }))
@@ -282,9 +289,18 @@ class DashboardService:
                         own = fingerprint(self.configuration.infrastructure)
                         if recent and not any(w["infrastructure"] == own for w in recent):
                             raise RuntimeError("Worker configuration has not been restarted")
-                        await asyncio.wait_for(self.gateway.start(run["id"]), timeout=8)
+                        from incident_copilot.observability import attach_context, new_trace
+                        if not run.get("_trace_context"):
+                            reference, carrier = new_trace(run["id"])
+                            if carrier:
+                                run.update(observability=reference, _trace_context=carrier)
+                                self.store.update("incidents", run["id"], {"observability": reference, "_trace_context": carrier})
+                        with attach_context(run.get("_trace_context")):
+                            await asyncio.wait_for(self.gateway.start(run["id"]), timeout=8)
                         self.store.update("incidents", run["id"], {"dispatched": True})
-                    status, progress = await asyncio.wait_for(self.gateway.inspect(run["id"]), timeout=8)
+                    from incident_copilot.observability import attach_context
+                    with attach_context(run.get("_trace_context")):
+                        status, progress = await asyncio.wait_for(self.gateway.inspect(run["id"]), timeout=8)
                     current = self.store.get("incidents", run["id"])
                     changes = {"connection_error": None}
                     completed_at = (progress or {}).get("completed_at") or next(
@@ -298,6 +314,11 @@ class DashboardService:
                         changes.update(status="failed", completed_at=completed_at, error=((current.get("source_resolution") or {}).get("reason") if (current.get("source_resolution") or {}).get("status") == "unavailable" else None) or f"Analysis {status.lower().replace('_', ' ')} during {current['stage']}. Check worker logs and repository access, then rerun.")
                     elif progress and current["status"] == "queued" and progress.get("stage") != "queued":
                         changes.update(status="running", stage=progress["stage"])
+                    if changes.get("status") in TERMINAL:
+                        from incident_copilot.observability import span
+                        with span("investigation.result", carrier=run.get("_trace_context"),
+                                  attributes={"incident_id": run["id"], "result_status": changes["status"]}):
+                            pass
                     self.store.update("incidents", run["id"], changes)
                 except asyncio.CancelledError:
                     raise

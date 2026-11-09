@@ -133,7 +133,8 @@ def build_diagnosis_prompt(state: DiagnosisState, *, policy_view: dict | None = 
     state["recommendation_limitations"] = list(dict.fromkeys(state.get("recommendation_limitations", [])))
     if policy_view is not None:
         policy_view.update(content)
-    return prompt
+    from incident_copilot.observability.prompts import categorized
+    return categorized(prompt, content | {"response_schema": response_schema})
 
 
 def _prompt_events(context: dict | None) -> dict:
@@ -203,10 +204,12 @@ async def build_hypotheses_node(state: DiagnosisState, runtime_settings=None,
         client = (get_client(runtime_settings, guardrail_context=context) if context
                   else get_client(runtime_settings))
         state["reasoning"]["model_calls"] = 1
+        from incident_copilot.observability import call_scope
         async with asyncio.timeout(max(0.001, deadline - time.time()) if mode != "baseline" else None):
-            text = await client.complete(
-                prompt=prompt, system_prompt=system_prompt, response_schema=response_schema,
-            )
+            with call_scope("diagnosis", model_call=1):
+                text = await client.complete(
+                    prompt=prompt, system_prompt=system_prompt, response_schema=response_schema,
+                )
     except GuardrailFailure as exc:
         state["fallback_reason"] = exc.reason
         state.update(fallback_diagnosis(state))

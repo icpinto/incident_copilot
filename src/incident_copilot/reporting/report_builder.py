@@ -5,7 +5,9 @@ from incident_copilot.schemas.diagnosis import DiagnosisReport, Hypothesis
 
 
 def build_report(graph_state: dict) -> DiagnosisReport:
+    from incident_copilot.observability import current_reference
     return DiagnosisReport(
+        observability=graph_state.get("observability") or current_reference(),
         reasoning=graph_state.get("reasoning"),
         incident_id=graph_state.get("incident_id") or str(uuid4()),
         action_plan_version=graph_state.get("action_plan_version") or (1 if any(h.get("action_plan") for h in graph_state.get("hypotheses", [])) else None),

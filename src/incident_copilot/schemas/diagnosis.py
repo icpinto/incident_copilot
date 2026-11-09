@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from incident_copilot.schemas.guardrails import GuardrailSummary
+from incident_copilot.schemas.observability import TraceReference
 from incident_copilot.schemas.validation import AnalysisValidationError
 
 from .candidates import CandidateLocation
@@ -48,6 +49,7 @@ class Hypothesis(BaseModel):
 
 
 class DiagnosisReport(BaseModel):
+    observability: TraceReference | None = None
     incident_id: str
     reasoning: ReasoningSummary | None = None
     action_plan_version: Literal[1] | None = None

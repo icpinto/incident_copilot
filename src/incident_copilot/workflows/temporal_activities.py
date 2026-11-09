@@ -8,6 +8,7 @@ from incident_copilot.core.settings import Settings
 from incident_copilot.correlation.candidate_ranker import rank_candidates
 from incident_copilot.graph.diagnosis_graph import run_diagnosis_graph
 from incident_copilot.indexing.repo_indexer import index_repository
+from incident_copilot.observability import observed
 from incident_copilot.reporting.report_builder import build_report
 from incident_copilot.schemas.incident import IncidentInput
 from incident_copilot.workflows.activity_heartbeat import reasoning_heartbeat
@@ -47,6 +48,7 @@ def runtime_settings(runtime=None, context: dict | None = None):
 
 
 @activity.defn
+@observed("indexing")
 async def build_service_map_and_index_activity(repo_root: str, compose_path: str | None, runtime: dict | None = None, context: dict | None = None) -> dict:
     settings = runtime_settings(runtime, context)
     summary = await asyncio.to_thread(index_repository,
@@ -58,6 +60,7 @@ async def build_service_map_and_index_activity(repo_root: str, compose_path: str
 
 
 @activity.defn
+@observed("correlating")
 async def correlate_logs_activity(incident: dict, runtime: dict | None = None, context: dict | None = None) -> dict:
     settings = runtime_settings(runtime, context)
     inc = IncidentInput.model_validate(incident)
@@ -78,6 +81,7 @@ async def correlate_logs_activity(incident: dict, runtime: dict | None = None, c
 
 
 @activity.defn
+@observed("analyzing")
 async def deep_analysis_activity(repo_root: str, candidates: list[dict], runtime: dict | None = None, context: dict | None = None) -> dict:
     settings = runtime_settings(runtime, context)
     results: dict = {}
@@ -94,6 +98,7 @@ async def deep_analysis_activity(repo_root: str, candidates: list[dict], runtime
 
 
 @activity.defn
+@observed("reasoning")
 async def diagnosis_graph_activity(incident_id: str, parsed_log: dict, candidates: list[dict], deep_analysis: dict, runtime: dict | None = None, context: dict | None = None) -> dict:
     settings = runtime_settings(runtime, context)
     reference = parsed_log.get("incident_context_ref")

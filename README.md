@@ -333,3 +333,5 @@ Read-only source mounts and persistent external graph storage are retained. See
   Java, JSON, and YAML. If a parser is unavailable, indexing falls back to Python
   AST or lightweight parsing. See [indexing details](docs/indexing.md).
 - The LLM is optional. If unavailable, the graph falls back to deterministic hypothesis generation.
+
+Optional per-investigation and per-call tracing: [Langfuse setup](docs/langfuse.md).

@@ -52,6 +52,8 @@ async def reconciliation_loop(service: DashboardService):
 
 @asynccontextmanager
 async def dashboard_lifespan(app: FastAPI):
+    from incident_copilot.observability import initialize
+    initialize()
     service = DashboardService(ControlStore(control_path()))
     app.state.dashboard = service
     task = asyncio.create_task(reconciliation_loop(service))
@@ -61,6 +63,8 @@ async def dashboard_lifespan(app: FastAPI):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        from incident_copilot.observability import shutdown
+        await asyncio.to_thread(shutdown)
 
 
 def get_service(request: Request) -> DashboardService:

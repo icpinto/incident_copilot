@@ -4,6 +4,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from incident_copilot.observability import observed
 from incident_copilot.schemas.validation import (
     AnalysisValidationError,
     ValidationIssue,
@@ -123,6 +124,7 @@ def schema_diagnostic(exc: ValidationError, contract: type[BaseModel], *,
                                    request_id=request_id, issues=issues, total_issues=len(errors))
 
 
+@observed("llm.validate")
 def validate_response(response: str, contract: type[T], *, stage: ValidationStage,
                       model_call: int) -> T:
     try:

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from incident_copilot.core.logging import configure_logging
 from incident_copilot.dashboard.api import dashboard_lifespan, router
+from incident_copilot.observability.runtime import entrypoint
 from incident_copilot.schemas.diagnosis import DiagnosisReport
 from incident_copilot.schemas.incident import IncidentInput
 from incident_copilot.workflows.temporal_activities import (
@@ -138,10 +139,16 @@ async def health() -> HealthResponse:
         }
     },
 )
+@entrypoint
 async def diagnose(incident: IncidentInput, request: Request) -> DiagnosisReport:
     config = request.app.state.dashboard.configuration.effective()
     runtime = config.model_dump(mode="json")
-    context = {"execution_id": str(uuid4()), "repo_root": str(incident.repo_root.resolve())}
+    from incident_copilot.observability.runtime import current_execution_id, execution_metadata
+    from incident_copilot.dashboard.config import fingerprint
+    execution_id = current_execution_id() or str(uuid4())
+    incident_id = incident.incident_id or execution_id
+    execution_metadata(config, incident_id=incident_id, config_revision=fingerprint(runtime))
+    context = {"execution_id": execution_id, "repo_root": str(incident.repo_root.resolve())}
     await build_service_map_and_index_activity(
         str(incident.repo_root),
         str(incident.compose_path) if incident.compose_path else None,
@@ -151,7 +158,7 @@ async def diagnose(incident: IncidentInput, request: Request) -> DiagnosisReport
     correlation = await correlate_logs_activity(incident.model_dump(mode="json"), runtime, context)
     deep = await deep_analysis_activity(str(incident.repo_root), correlation["candidates"], runtime, context)
     report = await diagnosis_graph_activity(
-        incident.incident_id or str(uuid4()),
+        incident_id,
         correlation["parsed_log"],
         correlation["candidates"],
         deep,

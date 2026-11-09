@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from importlib.resources import files
 
 from incident_copilot.analysis.evidence_tools import contains_secret, redact_evidence
+from incident_copilot.observability import observed
 from incident_copilot.schemas.guardrails import GuardrailEvent, GuardrailSummary
 
 MAX_CHECKS = 8
@@ -122,6 +123,11 @@ class GuardrailContext:
         self._summary.events = list(events.values())
         self._summary.duration_ms = sum(item.duration_ms for item in events.values())
         if complete:
+            from incident_copilot.observability import span
+            with span("guardrail.result", attributes={"guardrail_stage": event.stage,
+                      "guardrail_status": event.status, "guardrail_code": event.code,
+                      "duration_ms": event.duration_ms}):
+                pass
             self._results[event.id] = event.model_dump(mode="json")
         self._persist()
         if self.on_update:
@@ -146,11 +152,14 @@ class GuardrailContext:
             try:
                 self._summary.model_calls += 1
                 self._persist()  # Reserve before contacting the external model.
-                text = await self._raw.complete(
-                    prompt=self._active_text,
-                    system_prompt=_INJECTION_PROMPT,
-                    response_schema=_CLASSIFIER_SCHEMA,
-                )
+                from incident_copilot.observability import call_scope
+                from incident_copilot.observability.prompts import Prompt, Section
+                with call_scope("guardrail.input", model_call=self._summary.model_calls):
+                    text = await self._raw.complete(
+                        prompt=Prompt(self._active_text, [Section("evidence", self._active_text)]),
+                        system_prompt=_INJECTION_PROMPT,
+                        response_schema=_CLASSIFIER_SCHEMA,
+                    )
                 if not isinstance(text, str) or len(text.encode()) > 1024:
                     raise ValueError("classifier_invalid_response")
                 verdict = json.loads(text)
@@ -188,6 +197,7 @@ class GuardrailContext:
         engine.register_action(incident_check_output, name="incident_check_output")
         return engine
 
+    @observed("guardrail.check")
     async def check(self, stage: str, text: str, raw):
         identity = hashlib.sha256(
             (POLICY_VERSION + self._fingerprint + stage + text).encode()

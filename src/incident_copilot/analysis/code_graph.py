@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from incident_copilot.analysis.graph_manager import Progress, auth_headers, ensure_graph_ready
 from incident_copilot.core.settings import Settings
 from incident_copilot.indexing.storage import IndexStorage
+from incident_copilot.observability import observed
 from incident_copilot.schemas.code_graph import (
     GraphContext,
     GraphRelationship,
@@ -143,6 +144,7 @@ def check_staleness(payload: dict[str, Any]) -> None:
         raise GraphEvidenceError("stale_index")
 
 
+@observed("code_graph.retrieve")
 async def retrieve_graph_context(
     root: Path, index_db_path: Path, candidates: list[dict[str, Any]], config: Settings,
     *, expected_generation: str | None = None,

@@ -13,3 +13,6 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 *.egg-info/
+
+# Private local observability bootstrap credentials
+.env.langfuse

@@ -6,6 +6,11 @@ from .adapters.openai_compatible import OpenAICompatibleClient
 
 def get_raw_client(runtime_settings=None):
     config = runtime_settings or settings
+    from incident_copilot.observability.runtime import initialize
+    telemetry = initialize()
+    if telemetry:
+        from incident_copilot.analysis.evidence_tools import _configured_secrets
+        telemetry.secrets.update(_configured_secrets(config))
     provider = config.llm_provider.lower()
     if provider == "ollama":
         return OllamaClient(config.ollama_base_url, config.ollama_model)

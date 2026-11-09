@@ -127,7 +127,8 @@ async def review_diagnosis(
     if info["mode"] != "structured_review" or not info["review_reasons"]:
         return result
     payload = review_payload(draft, evidence, runbooks)
-    prompt = json.dumps(payload, ensure_ascii=False)
+    from incident_copilot.observability.prompts import categorized
+    prompt = categorized(json.dumps(payload, ensure_ascii=False), payload)
     if len(prompt.encode()) + len(REVIEW_SYSTEM_PROMPT.encode()) > MAX_PROMPT_BYTES:
         info.update(review_status="skipped", review_failure="prompt_limit")
         return result
@@ -147,11 +148,13 @@ async def review_diagnosis(
         guardrail_context.model_call = call
     try:
         async with asyncio.timeout(min(REVIEW_TIMEOUT_SECONDS, max(0.001, deadline - time.time()))):
-            text = await client.complete(
-                prompt=prompt,
-                system_prompt=REVIEW_SYSTEM_PROMPT,
-                response_schema=payload["response_schema"],
-            )
+            from incident_copilot.observability import call_scope
+            with call_scope("review", model_call=call):
+                text = await client.complete(
+                    prompt=prompt,
+                    system_prompt=REVIEW_SYSTEM_PROMPT,
+                    response_schema=payload["response_schema"],
+                )
         if isinstance(text, str) and len(text.encode()) > MAX_RESPONSE_BYTES:
             raise validation_failure(
                 stage="diagnosis_review", kind="limit", code="response_too_large", model_call=call
