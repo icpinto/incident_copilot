@@ -2,7 +2,10 @@
 
 Langfuse is optional. The normal Compose stack runs without it. The overlay adds a
 local Langfuse 4.76.0 web/worker pair and dedicated PostgreSQL, ClickHouse, Redis,
-and MinIO storage; its only published port is `127.0.0.1:3000`.
+and MinIO storage; its only published port defaults to `127.0.0.1:3000`. The MinIO image
+comes from Chainguard because MinIO's former Docker Hub repository is unavailable.
+If port 3000 is occupied, set `IC_LANGFUSE_HOST_PORT` in `.env.langfuse` to a free
+port and set `IC_LANGFUSE_PUBLIC_URL` and `LANGFUSE_BASE_URL` to its localhost URL.
 
 ## Start locally
 

@@ -68,9 +68,10 @@ services:
     restart: unless-stopped
     depends_on: *storage-dependencies
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${IC_LANGFUSE_HOST_PORT:-3000}:3000"
     environment:
       <<: *storage-env
+      HOSTNAME: 0.0.0.0
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?Set Langfuse authentication secret}
       LANGFUSE_INIT_ORG_ID: incident-copilot
       LANGFUSE_INIT_ORG_NAME: Incident Copilot
@@ -135,7 +136,7 @@ services:
       timeout: 5s
       retries: 20
   langfuse-minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: cgr.dev/chainguard/minio:latest
     restart: unless-stopped
     entrypoint: /bin/sh
     command: ["-c", 'mkdir -p /data/langfuse && exec minio server --address ":9000" --console-address ":9001" /data']
