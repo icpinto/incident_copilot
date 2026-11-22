@@ -26,6 +26,22 @@ The default and maximum budgets are:
 
 `IC_AGENTIC_MAX_ROUNDS`, `IC_AGENTIC_MAX_TOOL_REQUESTS`, and `IC_AGENTIC_TIMEOUT_SECONDS` can lower the configurable budgets. The controller stops when the model finishes, a budget is exhausted, requests repeat, or retrieval adds no evidence. Clipped content is marked; the model can request a subsequent bounded range while budget remains.
 
+Stopping retrieval is separate from finishing the diagnosis. Empty or duplicate-only
+rounds and retrieved-content limits run a final assessment when the original deadline
+and model-call budget permit. The assessment receives request questions and scope,
+outcome status and reason, retained evidence IDs, and clipping/omission limitations.
+It must finish without requesting more evidence. An empty search describes only its
+searched scope; unavailable telemetry leaves the observation unknown.
+
+The last available assessment call, and assessments after round/request limits,
+also use this finish-only contract. Retrieval cannot start without capacity for a
+subsequent assessment. These calls share the existing four-call maximum and
+180-second deadline; optional review uses only remaining capacity. Reports preserve
+the retrieval stop reason. `unassessed_request_ids` lists outcomes not included in a
+validated assessment, with an explicit unresolved gap in the dashboard and exports
+if time, calls, invalid output, or provider failure prevents assessment. Delivery to
+a validated assessment does not establish that the model interpreted it correctly.
+
 Retrieval is read-only. It does not execute tests, change source, or deploy code. Deployment-linked incidents can also retrieve [bounded runtime evidence](runtime-evidence.md) through the Docker collector. Runtime clients and credentials stay outside graph checkpoints. Source requests remain constrained to the trusted indexed repository; a changed or unverified source snapshot disables source retrieval. Runtime-enabled incidents can continue with runtime evidence and an explicit source gap. Reports retain graph completeness and parser limitations. A valid citation identifies an observation; it cannot prove causation.
 
 ## Recovery and reporting

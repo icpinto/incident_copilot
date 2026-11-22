@@ -253,11 +253,13 @@ async def test_no_new_evidence_stops(case, monkeypatch):
     _, _, settings, payload, runtime = case
     class Model:
         async def complete(self, **kwargs):
+            if json.loads(kwargs["prompt"])["assessment_mode"] == "final":
+                return response(kwargs["prompt"])
             return response(kwargs["prompt"], [{"tool": "search_source", "question": "Find error", "query": "absent-string"}])
     monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert result["investigation"]["stop_reason"] == "no_new_evidence"
-    assert result["investigation"]["model_calls"] == 1
+    assert result["investigation"]["model_calls"] == 2
 
 
 @pytest.mark.asyncio
@@ -269,6 +271,8 @@ async def test_round_limit_and_tool_limit(case, monkeypatch):
         async def complete(self, **kwargs):
             nonlocal count
             count += 1
+            if json.loads(kwargs["prompt"])["assessment_mode"] == "final":
+                return response(kwargs["prompt"])
             return response(kwargs["prompt"], [{"tool": "read_source", "question": "Read source", "file_path": "cache.py", "line_start": count}])
     monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)

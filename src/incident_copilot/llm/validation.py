@@ -16,6 +16,7 @@ T = TypeVar("T", bound=BaseModel)
 
 # Custom validators use these stable codes instead of unstructured ValueError text.
 SEMANTIC_MESSAGES = {
+    "final_assessment_requires_finish": "Final assessment must finish without further evidence requests.",
     "review_discarded_gap": "Review must preserve essential evidence gaps without new observations.",
     "review_new_hypothesis": "Review must retain the identities of existing hypotheses.",
     "review_status_upgrade": "Review cannot promote an insufficient-evidence draft without new observations.",

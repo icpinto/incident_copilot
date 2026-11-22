@@ -37,6 +37,7 @@ class DiagnosisState(TypedDict, total=False):
     working_hypotheses: list[dict[str, Any]]
     pending_requests: list[dict[str, Any]]
     retrieval_outcomes: dict[str, dict[str, Any]]
+    assessed_request_ids: list[str]
     execution_budget: dict[str, Any]
     investigation_progress: dict[str, Any]
     assessment_decision: dict[str, Any]

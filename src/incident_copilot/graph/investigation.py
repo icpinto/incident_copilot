@@ -60,6 +60,7 @@ from incident_copilot.tools.git_local import clean_revision
 MAX_PROMPT_BYTES = 32768
 MAX_EVIDENCE_BYTES = 65536
 MAX_MODEL_CALLS = 4
+FINAL_ASSESSMENT_STOPS = {"no_new_evidence", "evidence_limit"}
 
 SYSTEM_PROMPT = """Investigate an application incident using only supplied evidence.
 Return only JSON matching the response schema. Assess competing explanations and
@@ -166,8 +167,11 @@ def redact(value: Any, settings):
     return redact_evidence(value, settings)
 
 
-def strict_schema(mode="baseline") -> dict:
+def strict_schema(mode="baseline", *, final=False) -> dict:
     schema = InvestigationDecision.model_json_schema()
+    if final:
+        schema["properties"]["action"] = {"type": "string", "enum": ["finish"]}
+        schema["properties"]["requests"]["maxItems"] = 0
     if mode == "baseline":
         schema["properties"].pop("review_reasons", None)
     def visit(node):
@@ -186,17 +190,26 @@ def strict_schema(mode="baseline") -> dict:
     return schema
 
 
-def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict | None = None) -> str:
+def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict | None = None,
+                               final_reason: str | None = None) -> str:
     """Select bounded, valid JSON; never cut a serialized JSON value mid-string."""
     mode = (state.get("reasoning") or {}).get("mode", "baseline")
-    response_schema = strict_schema(mode)
+    response_schema = strict_schema(mode, final=bool(final_reason))
     system_prompt = reasoning_system_prompt(SYSTEM_PROMPT, mode)
     schema_bytes = len(encoded(response_schema))
     available = MAX_PROMPT_BYTES - len(system_prompt.encode()) - schema_bytes - 256
     previous = [{k: h.get(k) for k in ("id", "title", "evidence_refs", "contradicting_evidence_refs")}
                 for h in state.get("working_hypotheses", [])]
     payload = {
-        "task": "Assess the incident and choose the next evidence requests or finish.",
+        "task": (
+            "Finish the diagnosis using the supplied evidence and retrieval outcomes. "
+            "No further retrieval is permitted. Reconsider hypotheses and unresolved gaps; "
+            "empty searches establish only what was found within their scope, and unavailable "
+            "telemetry leaves the requested observation unknown. Return action finish with no requests."
+            if final_reason else "Assess the incident and choose the next evidence requests or finish."
+        ),
+        "assessment_mode": "final" if final_reason else "interactive",
+        "retrieval_stop_reason": final_reason,
         "retrieval_guidance": ("Link each request to hypothesis_id and use question to state the uncertainty and distinguishing outcomes. If there is no hypothesis yet, use null and state the gap in unresolved_gaps. Prioritize useful retrieval before final review." if mode != "baseline" else "Use explicit evidence questions."),
         "response_schema": response_schema,
         "budget": {k: budget[k] for k in ("rounds", "model_calls", "tool_calls")},
@@ -205,9 +218,7 @@ def build_investigation_prompt(state: dict, budget: dict, *, policy_view: dict |
                                for c in state.get("candidates", [])[:10]],
         "working_hypotheses": previous,
         "unresolved_gaps": state.get("assessment_decision", {}).get("unresolved_gaps", [])[:10],
-        "completed_requests": [{"tool": v.get("tool"), "status": v.get("status"),
-                                "reason": v.get("reason"), "request_id": v.get("request_id")}
-                               for v in state.get("retrieval_outcomes", {}).values()],
+        "completed_requests": list(state.get("retrieval_outcomes", {}).values()),
         "evidence": [], "omitted_evidence_ids": [],
         "runbooks": state.get("runbooks", []),
         "analysis_scope": scope_notice(state.get("incident_context")),
@@ -290,6 +301,11 @@ def _merge_graph(previous: dict | None, current: dict | None) -> dict | None:
 def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
     reason = stop_reason or state.get("investigation_progress", {}).get("stop_reason", "")
     gaps = state.get("assessment_decision", {}).get("unresolved_gaps", [])
+    unassessed = [key for key in state.get("retrieval_outcomes", {})
+                  if key not in state.get("assessed_request_ids", [])]
+    if unassessed:
+        gaps = gaps + [(f"{len(unassessed)} retrieval outcome(s) were not incorporated into a "
+                        f"validated assessment ({reason or 'assessment pending'}).")]
     if state.get("source_unavailable"):
         gaps = gaps + ["Source snapshot unavailable or unverified; source tools are disabled."]
     if state.get("omitted_initial_context_count"):
@@ -297,8 +313,8 @@ def _public(state: dict, budget: dict, stop_reason: str | None = None) -> dict:
     summary = InvestigationSummary(
         rounds=budget["rounds"], model_calls=budget["model_calls"], tool_calls=budget["tool_calls"],
         elapsed_ms=round(max(0, time.time() - budget["started_at"]) * 1000, 2),
-        stop_reason=reason, incomplete=bool(reason and (reason != "model_finished" or gaps)),
-        unresolved_gaps=gaps,
+        stop_reason=reason, incomplete=bool(unassessed or (reason and (reason != "model_finished" or gaps))),
+        unresolved_gaps=gaps, unassessed_request_ids=unassessed,
     )
     reasoning = dict(state.get("reasoning") or reasoning_summary("baseline"))
     reasoning["model_calls"] = budget["model_calls"]
@@ -324,7 +340,7 @@ def _bootstrap(payload: dict, snapshot: dict, settings) -> dict:
         state["recommendation_limitations"] = state.get("recommendation_limitations", []) + ["Runbooks omitted because the source revision changed."]
     records, omitted = initial_evidence(state, snapshot, MAX_EVIDENCE_BYTES)
     state.update(source_snapshot=snapshot, evidence_records=records, working_hypotheses=[],
-                 pending_requests=[], retrieval_outcomes={}, investigation_events=[],
+                 pending_requests=[], retrieval_outcomes={}, assessed_request_ids=[], investigation_events=[],
                  investigation_progress={}, assessment_decision={}, engine="deterministic",
                  fallback_reason=None, validation_errors=[])
     state["reasoning"] = reasoning_summary(settings.llm_reasoning_mode)
@@ -406,11 +422,22 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             if runtime.progress:
                 await runtime.progress(_public(state, journal.budget()))
 
-        async def assess(state):
+        async def assess(state, *, terminal=False):
             await publish(state)
             budget = journal.budget()
-            key = "assessment:" + digest([budget["rounds"], list(state["evidence_records"])])
+            key = "assessment:" + digest([
+                budget["rounds"], list(state["evidence_records"]),
+                state.get("retrieval_outcomes", {}), terminal,
+            ])
             saved = journal.get(key)
+            if saved is None and not terminal:
+                # Reuse completed calls from executions created before outcome-aware keys.
+                legacy_key = "assessment:" + digest([budget["rounds"], list(state["evidence_records"])])
+                legacy = journal.get(legacy_key)
+                if legacy is not None:
+                    saved = dict(legacy)
+                    if "decision" in saved:
+                        saved["assessed_request_ids"] = list(state.get("retrieval_outcomes", {}))
             if saved is None:
                 if time.time() >= budget["deadline"]:
                     return stop(state, "deadline")
@@ -418,6 +445,14 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     await asyncio.to_thread(tools.validate_source)
                 except ValueError as exc:
                     return stop(state, str(exc))
+                final_reason = state.get("investigation_progress", {}).get("stop_reason") if terminal else None
+                if not final_reason:
+                    if budget["rounds"] >= settings.agentic_max_rounds:
+                        final_reason = "round_limit"
+                    elif budget["tool_calls"] >= settings.agentic_max_tool_requests:
+                        final_reason = "tool_call_limit"
+                    elif budget["model_calls"] >= MAX_MODEL_CALLS - 1:
+                        final_reason = "model_call_limit"
                 if not journal.reserve("model_calls", MAX_MODEL_CALLS):
                     return stop(state, "model_call_limit")
                 started = time.monotonic()
@@ -425,7 +460,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                     view = {}
                     if runtime.runtime_client is not None and getattr(tools, "source", None) is None:
                         state["source_unavailable"] = True
-                    prompt = build_investigation_prompt(state, journal.budget(), policy_view=view)
+                    prompt = build_investigation_prompt(state, journal.budget(), policy_view=view,
+                                                        final_reason=final_reason)
                     if guardrails:
                         guardrails.input_text = encoded(view).decode()
                         guardrails.model_call = journal.budget()["model_calls"]
@@ -442,12 +478,16 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                         with call_scope("investigation", round=journal.budget()["rounds"],
                                         model_call=journal.budget()["model_calls"]):
                             response = await client.complete(prompt=prompt, system_prompt=system_prompt,
-                                                             response_schema=strict_schema(mode))
+                                                             response_schema=strict_schema(mode, final=bool(final_reason)))
                     if isinstance(response, str) and len(response.encode()) > MAX_EVIDENCE_BYTES:
                         raise validation_failure(stage="investigation_assessment", kind="limit",
                                                  code="response_too_large", model_call=journal.budget()["model_calls"])
                     decision = validate_response(response, InvestigationDecision,
                         stage="investigation_assessment", model_call=journal.budget()["model_calls"])
+                    if final_reason and (decision.action != "finish" or decision.requests):
+                        raise validation_failure(stage="investigation_assessment", kind="semantic",
+                            code="final_assessment_requires_finish", path=["action"],
+                            model_call=journal.budget()["model_calls"])
                     if mode != "baseline":
                         ids = {h.id for h in decision.hypotheses}
                         for index, request in enumerate(decision.requests):
@@ -470,6 +510,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                                           stage="investigation_assessment", model_call=journal.budget()["model_calls"],
                                           diagnosis_status=decision.diagnosis_status)
                     saved = {"decision": redact(decision.model_dump(mode="json"), settings),
+                             "final_reason": final_reason,
+                             "assessed_request_ids": [item["request_id"] for item in json.loads(prompt)["completed_requests"]],
                              "duration_ms": round((time.monotonic() - started) * 1000, 2)}
                     journal.put(key, saved)
                 except asyncio.CancelledError:
@@ -498,6 +540,12 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             decision = saved["decision"]
             event = InvestigationEvent(id=key, kind="assessment", status="completed", duration_ms=saved["duration_ms"])
             return {"recommendation_limitations": state.get("recommendation_limitations", []), "assessment_decision": decision, "working_hypotheses": decision["hypotheses"],
+                    "investigation_progress": {
+                        **state.get("investigation_progress", {}),
+                        **({"stop_reason": saved["final_reason"]} if saved.get("final_reason") else {}),
+                    },
+                    "assessed_request_ids": list(dict.fromkeys(
+                        state.get("assessed_request_ids", []) + saved.get("assessed_request_ids", []))),
                     "source_unavailable": bool(state.get("source_unavailable")),
                     "engine": "deterministic+llm", "execution_budget": journal.budget(),
                     "guardrails": guardrails.summary() if guardrails else None,
@@ -516,6 +564,8 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
                 return stop(state, str(exc))
             if decision["action"] == "finish":
                 return stop(state, "model_finished")
+            if budget["model_calls"] >= MAX_MODEL_CALLS:
+                return stop(state, "model_call_limit")
             if budget["rounds"] >= settings.agentic_max_rounds:
                 return stop(state, "round_limit")
             remaining = settings.agentic_max_tool_requests - budget["tool_calls"]
@@ -540,6 +590,9 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             key, request = entry["request_id"], EvidenceRequest.model_validate(entry["request"])
             saved = journal.get(key)
             if saved is None:
+                # Do not start external retrieval without capacity to assess its result.
+                if journal.budget()["model_calls"] >= MAX_MODEL_CALLS:
+                    return stop(state, "model_call_limit")
                 if not journal.reserve("tool_calls", settings.agentic_max_tool_requests):
                     return stop(state, "deadline" if time.time() >= journal.budget()["deadline"] else "tool_call_limit")
                 try:
@@ -588,6 +641,19 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             journal.set_content_bytes(count)
             outcomes = dict(state.get("retrieval_outcomes", {}))
             outcomes[outcome.request_id] = {k: v for k, v in outcome.model_dump(mode="json").items() if k not in {"evidence", "graph_context"}}
+            request = state["active_request"]["request"]
+            retained = [item.id for item in outcome.evidence if item.id in records]
+            outcomes[outcome.request_id].update(
+                question=request["question"], hypothesis_id=request.get("hypothesis_id"),
+                scope={k: v for k, v in request.items()
+                       if k not in {"tool", "question", "hypothesis_id"} and v is not None},
+                evidence_ids=retained, new_evidence_count=len(added),
+                omitted_evidence_count=len(outcome.evidence) - len(retained),
+                truncated=any(item.truncated for item in outcome.evidence) or reason == "evidence_limit",
+                limitations=list(dict.fromkeys(
+                    [limit for item in outcome.evidence for limit in item.limitations]
+                    + (["evidence_limit"] if reason == "evidence_limit" else []))),
+            )
             event = InvestigationEvent(id=outcome.request_id, kind="retrieval", tool=outcome.tool,
                 question=state["active_request"]["request"]["question"], status=outcome.status,
                 reason=outcome.reason or reason, evidence_ids=added, duration_ms=outcome.duration_ms)
@@ -616,12 +682,15 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
             await publish(dict(state) | result)
             return result
 
+        async def final_assess(state):
+            return await assess(state, terminal=True)
+
         async def review(state):
             decision = state.get("assessment_decision", {})
             summary = dict(state.get("reasoning") or pinned)
             summary["model_calls"] = journal.budget()["model_calls"]
             reason = state.get("investigation_progress", {}).get("stop_reason", "")
-            allowed = {"model_finished", "round_limit", "tool_call_limit", "model_call_limit", "no_new_evidence", "repeated_requests"}
+            allowed = {"model_finished", "round_limit", "tool_call_limit", "model_call_limit", "no_new_evidence", "repeated_requests", "evidence_limit"}
             if not decision or reason not in allowed:
                 if mode == "structured_review":
                     summary.update(review_status="skipped", review_failure=reason or "no_valid_assessment")
@@ -682,13 +751,23 @@ async def run_investigation(payload: dict, settings, runtime: InvestigationRunti
 
         graph = StateGraph(DiagnosisState)
         for name, function in (("assess", assess), ("control", control), ("retrieve", retrieve),
-                               ("merge", merge), ("review", review), ("finalize", finalize)):
+                               ("merge", merge), ("final_assess", final_assess),
+                               ("review", review), ("finalize", finalize)):
             graph.add_node(name, function)
         graph.set_entry_point("assess")
         graph.add_edge("assess", "control")
         graph.add_conditional_edges("control", lambda s: "review" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve")
         graph.add_edge("retrieve", "merge")
-        graph.add_conditional_edges("merge", lambda s: "review" if s.get("investigation_progress", {}).get("stop_reason") else "retrieve" if s.get("pending_requests") else "assess")
+        def after_merge(state):
+            reason = state.get("investigation_progress", {}).get("stop_reason")
+            if reason in FINAL_ASSESSMENT_STOPS:
+                return "final_assess"
+            if reason:
+                return "review"
+            return "retrieve" if state.get("pending_requests") else "assess"
+
+        graph.add_conditional_edges("merge", after_merge)
+        graph.add_edge("final_assess", "review")
         graph.add_edge("review", "finalize")
         graph.add_edge("finalize", END)
         async with AsyncSqliteSaver.from_conn_string(str(directory / "checkpoints.sqlite")) as checkpointer:

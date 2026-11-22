@@ -119,6 +119,7 @@ class InvestigationSummary(InvestigationRecord):
     stop_reason: str = ""
     incomplete: bool = False
     unresolved_gaps: list[str] = Field(default_factory=list)
+    unassessed_request_ids: list[str] = Field(default_factory=list)
 
 
 class InvestigationEvent(InvestigationRecord):

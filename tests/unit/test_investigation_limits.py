@@ -66,6 +66,8 @@ async def test_tool_limit_is_distinct_from_round_limit(execution, monkeypatch):
         async def complete(self, **kwargs):
             nonlocal calls
             calls += 1
+            if json.loads(kwargs["prompt"])["assessment_mode"] == "final":
+                return decision(kwargs["prompt"])
             return decision(kwargs["prompt"], [read(calls)])
 
     monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
@@ -86,12 +88,14 @@ async def test_model_limit_is_enforced_before_another_completion(execution, monk
         async def complete(self, **kwargs):
             nonlocal calls
             calls += 1
-            return decision(kwargs["prompt"], [read(1)])
+            assert json.loads(kwargs["prompt"])["assessment_mode"] == "final"
+            return decision(kwargs["prompt"])
 
     monkeypatch.setattr(investigation, "get_client", lambda *_, **_kwargs: Model())
     result = await run_diagnosis_graph(payload, settings, runtime)
     assert calls == 1 and result["investigation"]["model_calls"] == 1
     assert result["investigation"]["stop_reason"] == "model_call_limit"
+    assert result["investigation"]["tool_calls"] == 0
     assert result["engine"] == "deterministic+llm"
 
 
@@ -102,6 +106,8 @@ async def test_content_limit_rejects_excess_evidence_but_keeps_hypothesis(execut
 
     class Model:
         async def complete(self, **kwargs):
+            if json.loads(kwargs["prompt"])["assessment_mode"] == "final":
+                return decision(kwargs["prompt"])
             return decision(kwargs["prompt"], [read(1)])
 
     async def retrieve(self, request, request_id):
