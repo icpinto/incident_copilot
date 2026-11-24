@@ -109,6 +109,7 @@ diagnosis time. The page shows submission activity over the last 14 days, likely
 distribution from completed reports, and recent investigations. Open a recent incident
 to inspect its report, or choose **New analysis** to begin. An empty workspace shows
 onboarding guidance; these metrics come from saved history.
+![copilot_overview](docs/images/copilot_overview.png)
 
 ### Error intelligence
 
@@ -121,6 +122,7 @@ Counts describe captured uploads and collector inputs, not production-wide error
 or user impact. Exact duplicate dashboard uploads and reruns share occurrences, and
 older investigation history is not backfilled. See the
 [counting and triage guide](docs/error-intelligence.md) for coverage and timestamp rules.
+![error_intelligence](docs/images/error_intelligence.png)
 
 ### Issues
 
@@ -138,6 +140,7 @@ This is the saved investigation history. Search by title, ID, or diagnosis, filt
 status and repository, or expand **More filters** for service, error class, and date
 range. Each row shows its execution status, repository/service, actual diagnosis
 engine, and creation time. Open a row for the four investigation tabs described below.
+![copilot_overview](docs/images/incidents.png)
 
 ### Repositories
 
@@ -148,6 +151,7 @@ private repositories require read access. Repository cards show validation, inde
 files/symbols, services, sync revision, and code graph readiness with Prepare/Refresh
 actions. Edit profiles or archive unused ones while retaining existing incident history.
 See [repository setup](docs/repositories.md).
+![repositories](docs/images/repositories.png)
 
 ### Log sources
 
@@ -170,6 +174,7 @@ Model and analysis changes apply to new runs. Infrastructure settings show
 **Restart required** and need both API and worker restarted after active runs finish.
 Saved overrides take precedence over environment values; reset a field to restore its
 environment or built-in default. See [configuration and persistence](#configuration-and-persistence).
+![configurations](docs/images/configurations.png)
 
 ### Start a new analysis
 
