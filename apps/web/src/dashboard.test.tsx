@@ -167,6 +167,40 @@ describe('dashboard workflows', () => {
     expect(screen.getByText('TimeoutError: gateway')).toBeInTheDocument();
   });
 
+  it.each(['running', 'completed'] as const)('keeps reasoning, collected evidence, and workflow details in their own views for a %s incident', async status => {
+    const investigationEvidence = {
+      reasoning: { mode: 'structured', prompt_version: 'v1', review_status: 'completed', review_reasons: [], review_failure: null, model_calls: 2 },
+      runtime_collection: [{ id: 'runtime-1', capability: 'resources', status: 'ok', duration_ms: 12 }],
+      investigation: { mode: 'agentic', version: 1, rounds: 1, model_calls: 2, tool_calls: 1, elapsed_ms: 100, stop_reason: 'model_finished', incomplete: false, unresolved_gaps: [] },
+    };
+    mockFetch(() => ({ ...run, status, report: status === 'completed' ? { ...run.report, ...investigationEvidence } : null,
+      evidence: { ...run.evidence, ...investigationEvidence } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    await screen.findByRole('tab', { name: 'Diagnosis' });
+    expect(screen.getByRole('heading', { name: 'Diagnosis reasoning' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Runtime collection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Evidence investigation' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: /Source evidence/ }));
+    expect(screen.getByRole('heading', { name: 'Runtime collection' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Evidence investigation' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Diagnosis reasoning' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Run metadata' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Run details' }));
+    expect(screen.getByRole('heading', { name: 'Durable workflow' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Run metadata' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Diagnosis reasoning' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Runtime collection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Evidence investigation' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Logs & trace' }));
+    expect(screen.getByText('TimeoutError: gateway')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Runtime collection' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Diagnosis' }));
+    expect(screen.getByRole('heading', { name: 'Diagnosis reasoning' })).toBeVisible();
+  });
+
   it('shows static graph provenance and source relationships in the evidence view', async () => {
     mockFetch(() => ({ ...run, evidence: { ...run.evidence, graph_context: {
       provider: 'gitnexus', provider_version: '1.6.12', repository: '/repos/commerce', repo_revision: 'abc123', indexed_revision: 'abc123',
@@ -221,13 +255,21 @@ describe('dashboard workflows', () => {
     const item = { id: 'ev-path', kind: 'source', repository: '/repo', revision: 'abc123', file_path: 'cache.py', line_start: 4, line_end: 5, content: 'def _path(): return key', data: {}, limitations: ['lower_bound'], request_id: 'req-path', truncated: true };
     mockFetch(() => ({ ...run, report: { ...run.report, hypotheses: [{ ...run.report!.hypotheses[0], evidence_refs: ['ev-path'] }], retrieved_evidence: [item], investigation: { mode: 'agentic', version: 1, rounds: 2, model_calls: 3, tool_calls: 2, elapsed_ms: 1250, stop_reason: 'model_finished', incomplete: true, unresolved_gaps: ['Need the failing cache key'] }, investigation_events: [{ id: 'event-path', kind: 'retrieval', tool: 'read_source', question: 'How is the path built?', status: 'ok', evidence_ids: ['ev-path'], duration_ms: 10 }] } }));
     view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
-    expect(await screen.findByText('Evidence investigation')).toBeInTheDocument();
+    const citation = await screen.findByRole('link', { name: 'ev-path' });
+    expect(citation).toHaveAttribute('href', '#retrieved-evidence-ev-path');
+    expect(screen.queryByText('Evidence investigation')).not.toBeInTheDocument();
+    await userEvent.click(citation);
+    expect(screen.getByRole('tab', { name: /Source evidence/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Evidence investigation')).toBeVisible();
+    expect(screen.getByText('def _path(): return key')).toBeVisible();
     expect(screen.getByText('Incomplete')).toBeInTheDocument();
     expect(screen.getByText('Need the failing cache key')).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'ev-path' })[0]).toHaveAttribute('href', '#retrieved-evidence-ev-path');
     await userEvent.click(screen.getByText('Investigation actions (1)'));
     expect(screen.getByText('How is the path built?')).toBeVisible();
     await userEvent.click(screen.getByText(/cache.py:4/));
+    expect(screen.getByText('def _path(): return key')).not.toBeVisible();
+    await userEvent.click(screen.getByRole('link', { name: 'ev-path' }));
     expect(screen.getByText('def _path(): return key')).toBeVisible();
     expect(screen.getByText('Limitations: lower_bound')).toBeVisible();
     expect(screen.getByText(/Content clipped/)).toBeVisible();
