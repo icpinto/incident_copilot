@@ -5,8 +5,12 @@ deployment-linked incidents from enabled Log sources. It keeps Docker access ins
 collector; API and worker containers do not need the Docker socket. Historical incidents
 retain their saved evidence without runtime retrieval.
 
-In **Log sources**, enable runtime evidence, select up to four dependencies per failing
-service, and optionally name a telemetry profile. Only configured dependencies and explicitly
+Runtime settings are managed through `PUT /api/log-sources/{project}?collector_id=...`:
+`runtime_enabled` controls retrieval, `runtime_dependencies` maps each failing service to
+up to four dependencies, and `telemetry_profile` optionally names a collector profile.
+These controls are not displayed in **Log sources**; UI saves preserve their saved values.
+Removing the controls does not disable runtime collection or change its backend defaults.
+Only configured dependencies and explicitly
 aliased services appearing in an observed incident trace can extend the related-service scope.
 Source linking still identifies the declared commit. If that source cannot be prepared, new
 runtime-enabled incidents continue with source tools disabled and an explicit source gap.
@@ -101,8 +105,9 @@ Reports show the suspected failure layer (`application`, `database`, `network`,
 These labels are provisional hypotheses. A healthy container or a timeout alone does not
 establish a cause. Missing telemetry can still lead to `insufficient_evidence`.
 
-The Log sources card shows helper freshness, capabilities, sampled-container count and sampling
-omissions. Incident runtime collection shows query outcomes and durations. The same evidence and
+The `GET /api/log-sources` response includes helper freshness, capabilities, sampled-container
+count and sampling omissions under `runtime_collector`; the compact UI does not display them.
+Incident runtime collection shows query outcomes and durations. The same evidence and
 limitations appear in JSON and Markdown exports. Deploy the API and worker before upgrading
 collectors. In-flight historical incidents retain the original source-resolution behavior.
 

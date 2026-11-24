@@ -53,11 +53,12 @@ packaged source even when the declared commit matches.
    deployment observations, and current collector mappings are retained.
 2. Rebuild and recreate the standalone collector using
    `docker compose -f docker-compose.collector.yml up --build -d`.
-3. In **Log sources**, map the collector/project to a repository, enter an
-   environment such as `production`, select application services under **Analyze
-   deployed versions**, and save. Leave third-party services unselected unless
+3. In **Log sources**, click **Configure** for the collector/project, choose a repository,
+   enter an environment such as `production`, and enable **Collect errors**. Expand
+   **Version matching**, select application services under **Use deployed Git commits**,
+   and click **Save changes**. Leave third-party services unselected unless
    their source belongs to the mapped repository.
-4. Inspect **Observed container versions**. New errors from selected services pin
+4. Expand **Source details**, then **Observed container versions**. New errors from selected services pin
    the emitting container's declared commit. A prior GitHub branch sync is not
    needed for version-linked analysis.
 

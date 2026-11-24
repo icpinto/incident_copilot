@@ -486,6 +486,23 @@ textarea { resize: vertical; }
 .version-services legend { color: var(--text); padding: 0 6px; }
 .version-services .issue-checkbox { margin: 10px 0; }
 
+/* Log source summaries and inline configuration */
+.log-source-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.log-source-card > p { margin-top: 12px; }
+.log-source-card > small { margin-top: 8px; }
+.badge.source-enabled { color: var(--green); }
+.badge.source-setup-required { color: var(--amber); }
+.log-source-version-summary { color: var(--muted); font-size: var(--text-sm); }
+.log-source-actions { margin-top: 20px; }
+.log-source-form { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+.log-source-form > fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.log-source-form label { margin-bottom: 16px; }
+.log-source-form p { color: var(--muted); font-size: var(--text-sm); }
+.log-source-form .button-group { margin-top: 16px; flex-wrap: wrap; }
+.log-source-details { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: var(--text-sm); }
+.log-source-details p, .log-source-details details { margin-top: 12px; }
+.log-source-card summary { cursor: pointer; min-height: 32px; }
+
 /* Manual recommendations and responder-reported follow-through. */
 .recommendations h3 { margin-top: 1.5rem; }
 .recommendations h4 { margin: 1rem 0 .5rem; }

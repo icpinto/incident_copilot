@@ -103,8 +103,9 @@ docker compose -f docker-compose.collector.yml up --build -d
 ```
 
 The collector reads existing Compose labels through the local Docker daemon; target
-application Compose files require no changes. Open **Log sources**, choose a
-discovered project, map it to an active repository, and enable collection. The
+application Compose files require no changes. Open **Log sources**, click **Configure**
+for a discovered project, choose an active repository, enable **Collect errors**, and
+click **Save changes**. The
 worker must be able to access that repository's source. Vector sends bounded
 30-second error windows and nearby lines to the API; repeated errors update
 Issues, with at most one investigation per fingerprint per hour. The collector

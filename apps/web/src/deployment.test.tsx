@@ -43,17 +43,21 @@ it('shows the saved runtime settings with redacted values and mount metadata', a
 it('saves environment and per-service enablement for the correct collector', async () => {
   const writes: { url: string; body: unknown }[] = [];
   mockFetch((url, init) => {
-    if (init?.method === 'PUT') { writes.push({ url, body: JSON.parse(String(init.body)) }); return {}; }
+    if (init?.method === 'PUT') { writes.push({ url, body: JSON.parse(String(init.body)) }); return { collector_id: 'host-a', project: 'app', services: ['api', 'db'], last_seen: observed.last_observed, ...JSON.parse(String(init.body)) }; }
     if (url.includes('/deployments')) return { items: [observed], total: 1, page: 1, page_size: 20 };
     if (url.includes('/repositories')) return [repo];
     return [{ collector_id: 'host-a', project: 'app', services: ['api', 'db'], repository_id: 'repo', environment: 'unknown', versioned_services: [], enabled: true, last_seen: observed.last_observed }];
   });
   view(<LogSources />);
-  fireEvent.change(await screen.findByLabelText('Environment for app'), { target: { value: 'production' } });
+  await userEvent.click(await screen.findByRole('button', { name: 'Configure app (host-a)' }));
+  fireEvent.change(screen.getByLabelText('Environment for app (host-a)'), { target: { value: 'production' } });
+  await userEvent.click(screen.getByText('Version matching', { selector: 'summary' }));
   await userEvent.click(screen.getByRole('checkbox', { name: 'api' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Save source' }));
-  await waitFor(() => expect(writes).toEqual([{ url: '/api/log-sources/app?collector_id=host-a', body: { repository_id: 'repo', enabled: true, environment: 'production', versioned_services: ['api'], runtime_enabled: true, runtime_dependencies: {}, telemetry_profile: null } }]));
   expect(screen.getByRole('checkbox', { name: 'db' })).not.toBeChecked();
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(writes).toEqual([{ url: '/api/log-sources/app?collector_id=host-a', body: { repository_id: 'repo', enabled: true, environment: 'production', versioned_services: ['api'] } }]));
+  await userEvent.click(screen.getByText('Source details', { selector: 'summary' }));
+  await userEvent.click(screen.getByText('Observed container versions', { selector: 'summary' }));
   expect(screen.getByText(/First observed/)).toBeInTheDocument();
 });
 

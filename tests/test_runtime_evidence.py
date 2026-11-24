@@ -473,6 +473,31 @@ async def test_runtime_snapshot_is_excluded_from_other_primary_group(setup_runti
     assert "another log group" in report["runtime_collection"][0]["reason"]
 
 
+@pytest.mark.parametrize("runtime_enabled", [True, False])
+def test_source_ui_saves_preserve_hidden_runtime_policy(setup_runtime, runtime_enabled):
+    from types import SimpleNamespace
+
+    from incident_copilot.dashboard.log_ingestion import SourceMapping, map_source
+
+    service, _ = setup_runtime
+    with service.store.connection() as db:
+        db.execute(
+            "UPDATE collector_sources SET runtime_enabled=?,telemetry_profile='prod'",
+            (int(runtime_enabled),),
+        )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(dashboard=service)))
+    saved = map_source(
+        "app",
+        SourceMapping(repository_id="repo", enabled=True, environment="staging"),
+        request,
+        collector_id="host",
+    )
+    assert saved["runtime_enabled"] is runtime_enabled
+    assert saved["runtime_dependencies"] == {"api": ["db"]}
+    assert saved["telemetry_profile"] == "prod"
+    assert saved["environment"] == "staging"
+
+
 def test_runtime_endpoints_authentication_limits_and_disable(setup_runtime, monkeypatch):
     from fastapi.testclient import TestClient
 
