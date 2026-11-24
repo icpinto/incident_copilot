@@ -24,38 +24,47 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
 }
 
 describe('dashboard workflows', () => {
-  it('shows the top three localization candidates and expands or collapses with the keyboard', async () => {
+  it('starts localization collapsed and reveals only the top three candidates when expanded', async () => {
     const candidates = Array.from({ length: 5 }, (_, i) => ({ ...run.report!.candidates[0],
       file_path: `services/payments/candidate-${i + 1}.py`, score: 50 - i,
       reasons: [`Matching reason ${i + 1}`] }));
     mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
     view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
-    const panel = await screen.findByRole('region', { name: 'Localization strength' });
-    const toggle = within(panel).getByRole('button', { name: 'Show all 5 locations' });
-    const list = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
+    const panel = heading.closest('details')!;
+    const toggle = heading.closest('summary')!;
+    const list = panel.querySelector('ul')!;
     const locations = () => Array.from(list.children).map(item => item.querySelector('strong')!.textContent);
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(panel).not.toHaveAttribute('open');
+    expect(list).not.toBeVisible();
     expect(locations()).toEqual(candidates.slice(0, 3).map(c => `${c.file_path}: ${c.score}`));
-    expect(within(panel).getByText('Matching reason 3')).toBeVisible();
+    expect(within(panel).getByText('Matching reason 3')).not.toBeVisible();
     expect(within(panel).queryByText('Matching reason 4')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
     toggle.focus();
-    await userEvent.keyboard('{Enter}');
-    expect(toggle).toHaveAccessibleName('Show top 3');
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(locations()).toEqual(candidates.map(c => `${c.file_path}: ${c.score}`));
-    expect(within(panel).getByText('Matching reason 5')).toBeVisible();
-    await userEvent.keyboard(' ');
-    expect(toggle).toHaveAccessibleName('Show all 5 locations');
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveFocus();
+    await userEvent.click(toggle);
+    expect(panel).toHaveAttribute('open');
+    expect(list).toBeVisible();
+    expect(within(panel).getByText('Matching reason 3')).toBeVisible();
+    expect(locations()).toEqual(candidates.slice(0, 3).map(c => `${c.file_path}: ${c.score}`));
+    expect(within(panel).queryByText('Matching reason 4')).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(panel).not.toHaveAttribute('open');
+    expect(list).not.toBeVisible();
     expect(list.children).toHaveLength(3);
   });
 
-  it.each([0, 1, 2, 3])('shows %i localization candidates without an expansion control', async count => {
+  it.each([0, 1, 2, 3])('keeps %i localization candidates behind the section disclosure', async count => {
     const candidates = Array.from({ length: count }, (_, i) => ({ ...run.report!.candidates[0], file_path: `candidate-${i}.py` }));
     mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
     view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
-    const panel = await screen.findByRole('region', { name: 'Localization strength' });
+    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
+    const panel = heading.closest('details')!;
+    expect(panel).not.toHaveAttribute('open');
     expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
+    await userEvent.click(heading.closest('summary')!);
+    expect(panel).toHaveAttribute('open');
     if (count) expect(within(panel).getAllByText(/candidate-\d\.py: 24/)).toHaveLength(count);
     else expect(within(panel).getByText('No source location identified.')).toBeVisible();
   });
@@ -69,12 +78,14 @@ describe('dashboard workflows', () => {
       <Link to="/incidents/run-456">Open another incident</Link>
       <Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>
     </MemoryRouter></QueryClientProvider>);
-    await userEvent.click(await screen.findByRole('button', { name: 'Show all 5 locations' }));
+    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
+    await userEvent.click(heading.closest('summary')!);
     await act(async () => { await client.refetchQueries({ queryKey: ['incident', 'run-123'] }); });
-    expect(screen.getByRole('button', { name: 'Show top 3' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('candidate-4.py: 24')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Localization strength' }).closest('details')).toHaveAttribute('open');
+    expect(screen.getByText('candidate-2.py: 24')).toBeVisible();
     await userEvent.click(screen.getByRole('link', { name: 'Open another incident' }));
-    expect(await screen.findByRole('button', { name: 'Show all 5 locations' })).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Localization strength' }).closest('details')).not.toHaveAttribute('open'));
+    expect(screen.getByText('candidate-2.py: 24')).not.toBeVisible();
     expect(screen.queryByText('candidate-4.py: 24')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Source evidence (5)' }));
     expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(4);
