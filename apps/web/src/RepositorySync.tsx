@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RotateCw } from 'lucide-react';
+import { Github, LoaderCircle, RotateCw } from 'lucide-react';
 import { useEffect } from 'react';
 import { api, json } from './api';
 import { ErrorNotice } from './components';
@@ -26,14 +26,14 @@ export function RepositorySync({ repo }: { repo: Repository }) {
     }
   }, [state?.status, state?.completed_at, client, repo.id]);
   return <section className="repository-graph" aria-label={`GitHub sync for ${repo.name}`}>
-    <div className="inline-heading"><strong>GitHub sync</strong><span role="status">{busy ? stages[state?.stage || 'queued'] || 'Syncing…' : state?.status === 'failed' ? 'Needs attention' : state?.result === 'unchanged' ? 'No changes at last check' : repo.synced_revision ? 'Synced' : 'Not synced'}</span></div>
+    <div className="inline-heading"><strong><Github size={15} />GitHub sync</strong><span className={`connection-status ${busy ? 'is-busy' : state?.status === 'failed' ? 'is-warning' : repo.synced_revision ? 'is-success' : 'is-neutral'}`} role="status">{busy ? <LoaderCircle className="spin" size={13} /> : <span className="status-dot" />}{busy ? stages[state?.stage || 'queued'] || 'Syncing…' : state?.status === 'failed' ? 'Needs attention' : state?.result === 'unchanged' ? 'No changes at last check' : repo.synced_revision ? 'Synced' : 'Not synced'}</span></div>
     <ErrorNotice error={query.error || sync.error || state?.error} />
     {state?.connection_error && <p>{state.connection_error}</p>}
     {repo.synced_revision ? <p className="mono" title={repo.synced_revision}>Synced commit: {repo.synced_revision.slice(0, 12)}</p> : <p>Check &amp; sync before starting an analysis.</p>}
     {repo.last_checked_at && <p>Last checked: {new Date(repo.last_checked_at).toLocaleString()}</p>}
     {repo.last_synced_at && <p>Last synced: {new Date(repo.last_synced_at).toLocaleString()}</p>}
     {state?.graph_preparation?.status === 'unavailable' && <p>Code graph preparation is unavailable. Source diagnosis is ready; graph preparation can be retried below.</p>}
-    <button className="button" disabled={busy || query.isPending} onClick={() => sync.mutate()}><RotateCw size={14} />{busy ? 'Syncing…' : 'Check & sync'}</button>
+    <button className="button" disabled={busy || query.isPending} onClick={() => sync.mutate()}><RotateCw className={busy ? 'spin' : undefined} size={14} />{busy ? 'Syncing…' : 'Check & sync'}</button>
     <p>GitHub is checked only when you request a sync. Analyses use the last successfully synced commit.</p>
   </section>;
 }

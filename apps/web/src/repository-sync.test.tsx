@@ -98,3 +98,34 @@ it('keeps saved tokens out of edit fields and offers explicit removal', async ()
   await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
   await waitFor(() => expect(bodies).toEqual([expect.objectContaining({ clear_github_token: true })]));
 });
+
+it('cancels repository edits without writing and restores focus to the edit action', async () => {
+  const fetch = mockFetch(url => url.endsWith('/sync') ? { repository_id: 'remote', status: 'idle' } : [remote]);
+  view(<Repositories />);
+  const edit = await screen.findByRole('button', { name: 'Edit GitHub app' });
+  await userEvent.click(edit);
+  expect(screen.getByLabelText('Profile name')).toHaveFocus();
+  fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Unsaved name' } });
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('form')).not.toBeInTheDocument();
+  await waitFor(() => expect(edit).toHaveFocus());
+  expect(fetch.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  await userEvent.click(edit);
+  expect(screen.getByLabelText('Profile name')).toHaveValue('GitHub app');
+});
+
+it('retains repository edits and shows save errors inside the form', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (init?.method === 'PUT') return new Response(JSON.stringify({ detail: 'Repository profile could not be saved.' }), { status: 422 });
+    return new Response(JSON.stringify(String(url).endsWith('/sync') ? { status: 'idle' } : [remote]), { status: 200 });
+  });
+  view(<Repositories />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit GitHub app' }));
+  fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Updated name' } });
+  await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  const error = await screen.findByRole('alert');
+  expect(error).toHaveTextContent('Repository profile could not be saved.');
+  expect(screen.getByRole('form', { name: 'Edit repository profile' })).toContainElement(error);
+  expect(screen.getByLabelText('Profile name')).toHaveValue('Updated name');
+  expect(screen.getByRole('button', { name: 'Save profile' })).toBeEnabled();
+});

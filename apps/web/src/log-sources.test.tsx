@@ -43,7 +43,8 @@ beforeEach(() => vi.restoreAllMocks());
 it('shows compact summaries and removes runtime configuration', async () => {
   setup();
   expect(await screen.findByText('Enabled')).toBeVisible();
-  expect(screen.getByText('Commerce · production')).toBeVisible();
+  expect(screen.getByText('Commerce', { selector: 'dd' })).toBeVisible();
+  expect(screen.getByText('production', { selector: 'dd' })).toBeVisible();
   expect(screen.getByText('Version matching: api')).toBeVisible();
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   expect(screen.queryByText(/Retrieve passive|Telemetry profile|Dependencies of|Capabilities:|Helper last seen/)).not.toBeInTheDocument();
@@ -61,6 +62,7 @@ it('cancels edits and preserves unsaved values across source refreshes', async (
   expect(screen.getByLabelText('Environment for app (host-a)')).toHaveValue('staging');
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(app.writes).toHaveLength(0);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Configure app (host-a)' })).toHaveFocus());
   await userEvent.click(screen.getByRole('button', { name: 'Configure app (host-a)' }));
   expect(screen.getByLabelText('Environment for app (host-a)')).toHaveValue('updated remotely');
 });
@@ -77,7 +79,8 @@ it('saves for the correct collector, retains missing services, and omits hidden 
   await userEvent.click(within(card).getByRole('button', { name: 'Save changes' }));
   await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument());
   expect(app.writes).toEqual([{ url: '/api/log-sources/app?collector_id=host-a', body: { repository_id: 'repo', enabled: true, environment: 'staging', versioned_services: ['api'] } }]);
-  expect(within(card).getByText('Commerce · staging')).toBeVisible();
+  expect(within(card).getByText('Commerce', { selector: 'dd' })).toBeVisible();
+  expect(within(card).getByText('staging', { selector: 'dd' })).toBeVisible();
   expect(screen.getByText('Settings saved for app (host-a).')).toBeVisible();
 });
 

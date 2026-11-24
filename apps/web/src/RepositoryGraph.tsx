@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RotateCw } from 'lucide-react';
+import { LoaderCircle, Network, RotateCw } from 'lucide-react';
 import { api, json } from './api';
 import { ErrorNotice } from './components';
 import type { GraphPreparation, Repository } from './types';
@@ -29,11 +29,11 @@ export function RepositoryGraph({ repo }: { repo: Repository }) {
   const state = query.data;
   const busy = refresh.isPending || state?.status === 'queued' || state?.status === 'preparing';
   return <section className="repository-graph" aria-label={`Code graph for ${repo.name}`}>
-    <div className="inline-heading"><strong>Code graph</strong><span role="status">{state ? labels[state.status] : query.isPending ? 'Checking…' : 'Unavailable'}</span></div>
+    <div className="inline-heading"><strong><Network size={15} />Code graph</strong><span className={`connection-status ${busy || query.isPending ? 'is-busy' : state?.status === 'ready' ? 'is-success' : !state || ['stale', 'unavailable'].includes(state.status) ? 'is-warning' : 'is-neutral'}`} role="status">{busy || query.isPending ? <LoaderCircle className="spin" size={13} /> : <span className="status-dot" />}{state ? labels[state.status] : query.isPending ? 'Checking…' : 'Unavailable'}</span></div>
     <ErrorNotice error={query.error || refresh.error} />
     {state?.reason && <p>{messages[state.reason] || 'Graph evidence is unavailable. Diagnosis remains available.'}</p>}
     {state?.indexed_revision && <p className="mono" title={state.indexed_revision}>Indexed commit: {state.indexed_revision.slice(0, 12)}{state.source_revision && state.source_revision !== state.indexed_revision ? ` · Current: ${state.source_revision.slice(0, 12)}` : ''}</p>}
     {state?.indexed_at && <small>Indexed {new Date(state.indexed_at).toLocaleString()}</small>}
-    {state && !['disabled', 'external'].includes(state.status) && <button className="button" disabled={busy} onClick={() => refresh.mutate()}><RotateCw size={14} />{busy ? 'Preparing graph…' : state.indexed_revision ? 'Refresh graph' : 'Prepare graph'}</button>}
+    {state && !['disabled', 'external'].includes(state.status) && <button className="button" disabled={busy} onClick={() => refresh.mutate()}><RotateCw className={busy ? 'spin' : undefined} size={14} />{busy ? 'Preparing graph…' : state.indexed_revision ? 'Refresh graph' : 'Prepare graph'}</button>}
   </section>;
 }
