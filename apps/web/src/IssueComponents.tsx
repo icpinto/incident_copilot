@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, Filter, RotateCcw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { Badge, Empty, ErrorNotice, time } from './components';
@@ -34,9 +35,9 @@ export function IssueFilters({ showSort = false }: { showSort?: boolean }) {
         const end = new Date(); next.set('end_at', end.toISOString()); next.set('start_at', new Date(end.getTime() - days * 86400000).toISOString()); next.set('window', String(days)); next.delete('page'); setParams(next, { replace: true });
       }}><option value="14">Last 14 days</option><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="custom" disabled>Custom window</option></select></label>
       {showSort && <label>Sort<select aria-label="Issue sort" value={params.get('sort') || 'occurrences'} onChange={e => update('sort', e.target.value)}><option value="occurrences">Most frequent</option><option value="growth">Fastest growing</option><option value="last_seen">Last seen</option></select></label>}
-      <button className="button" onClick={() => setParams({})}>Reset filters</button>
+      <button className="button" onClick={() => setParams({})}><RotateCcw aria-hidden="true" size={14} />Reset filters</button>
     </div>
-    <details open={fields.some(([key]) => params.has(key)) || params.get('window') === 'custom' || undefined}><summary>More filters</summary><div className="issue-filter-secondary">
+    <details open={fields.some(([key]) => params.has(key)) || params.get('window') === 'custom' || undefined}><summary><Filter aria-hidden="true" size={14} /> More filters</summary><div className="issue-filter-secondary">
       {fields.map(([key, label]) => <label key={key}>{label}<input aria-label={`Issue ${label.toLowerCase()}`} value={params.get(key) || ''} onChange={e => update(key, e.target.value)} /></label>)}
       {(['start_at', 'end_at'] as const).map(key => <label key={key}>{key === 'start_at' ? 'From' : 'Until'} (UTC)<input aria-label={key === 'start_at' ? 'Errors from UTC' : 'Errors until UTC'} type="datetime-local" value={(params.get(key) || '').replace(/Z|\+00:00$/, '').slice(0, 16)} onChange={e => {
         const next = new URLSearchParams(params); e.target.value ? next.set(key, `${e.target.value}:00Z`) : next.delete(key); next.set('window', 'custom'); next.delete('page'); setParams(next, { replace: true });
@@ -56,5 +57,5 @@ export function IssueTable({ items }: { items: Issue[] }) {
 }
 
 export function IssuePagination({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (page: number) => void }) {
-  return <div className="pagination"><span>Page {page} · {total} results</span><div className="button-group"><button className="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button><button className="button" disabled={page * pageSize >= total} onClick={() => onPage(page + 1)}>Next</button></div></div>;
+  return <div className="pagination"><span>Page {page} · {total} results</span><div className="button-group"><button className="button" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft aria-hidden="true" size={15} />Previous</button><button className="button" disabled={page * pageSize >= total} onClick={() => onPage(page + 1)}>Next<ChevronRight aria-hidden="true" size={15} /></button></div></div>;
 }

@@ -1,3 +1,4 @@
+import { ShieldCheck } from 'lucide-react';
 import { Panel } from './components';
 import type { GuardrailSummary } from './types';
 
@@ -8,7 +9,7 @@ export function Guardrails({ summary }: { summary?: GuardrailSummary | null }) {
   const findings = summary.events.filter(event => event.status === 'flagged').length;
   const failures = summary.events.filter(event => event.status === 'error' || event.status === 'skipped').length;
   return <div>
-    <Panel title="Guardrails" subtitle={summary.mode === 'observe'
+    <Panel icon={ShieldCheck} title="Guardrails" subtitle={summary.mode === 'observe'
       ? 'Observation mode records findings and check failures without blocking analysis.'
       : 'Enforcement stops a model step when content is rejected or a check is unavailable.'}>
       <dl className="investigation-summary">

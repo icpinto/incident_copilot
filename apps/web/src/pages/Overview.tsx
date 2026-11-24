@@ -1,5 +1,5 @@
 ﻿import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowRight, ArrowUpRight, CheckCheck, Clock3, FolderGit2, Plus, Zap } from 'lucide-react';
+import { Activity, ArrowRight, ArrowUpRight, ChartNoAxesCombined, CheckCheck, Clock3, FolderGit2, ListChecks, Plus, Zap } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -31,7 +31,7 @@ export function Overview() {
         <strong>{metric.value}</strong><small>{metric.note}</small>
       </section>)}</div>
       <div className="charts-grid">
-        <Panel title="Incident activity" subtitle="Submitted incidents over the last 14 days" action={<span className="chart-period">Last 14 days</span>}>
+        <Panel icon={ChartNoAxesCombined} title="Incident activity" subtitle="Submitted incidents over the last 14 days" action={<span className="chart-period">Last 14 days</span>}>
           <div className="chart" role="img" aria-label={`Incident submissions over 14 days; ${data.total} total incidents`}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.activity} margin={{ top: 16, right: 24, left: -12, bottom: 0 }}>
@@ -46,7 +46,7 @@ export function Overview() {
           </div>
           <div className="chart-footnote"><span className="chart-legend"><i />Incident volume</span><span>Daily submissions</span></div>
         </Panel>
-        <Panel title="Service distribution" subtitle="Likely service in completed diagnoses">
+        <Panel icon={FolderGit2} title="Service distribution" subtitle="Likely service in completed diagnoses">
           {data.services.length ? <div className="chart" role="img" aria-label={data.services.map(s => `${s.name}: ${s.count}`).join(', ')}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.services.slice(0, 6)} layout="vertical" margin={{ top: 16, right: 24, left: 0 }}>
@@ -58,7 +58,7 @@ export function Overview() {
           <div className="chart-footnote"><span>{data.services.length} services identified</span><span>Diagnosis results</span></div>
         </Panel>
       </div>
-      <Panel title="Recent investigations" subtitle="Latest incidents and their current status" action={<Link className="text-link" to="/incidents">View all incidents<ArrowUpRight size={15} /></Link>}>
+      <Panel icon={ListChecks} title="Recent investigations" subtitle="Latest incidents and their current status" action={<Link className="text-link" to="/incidents">View all incidents<ArrowUpRight size={15} /></Link>}>
         {data.recent.length ? <IncidentTable rows={data.recent} /> : <Empty />}
       </Panel>
       <div className="workflow-note"><span>Index <ArrowRight size={12} />Correlate <ArrowRight size={12} />Analyze <ArrowRight size={12} />Diagnose</span><span><FolderGit2 size={14} />{repos.data ? `${repos.data.length} connected repositories` : 'Repository count unavailable'}</span></div>

@@ -1,12 +1,13 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Box } from 'lucide-react';
 import { api } from './api';
 import { ErrorNotice, Panel, time } from './components';
 import type { DeploymentContext, DeploymentObservation, DeploymentPage, SourceResolution } from './types';
 
 export function DeployedVersion({ context, resolution }: { context?: DeploymentContext | null; resolution?: SourceResolution }) {
   if (!context) return null;
-  return <Panel title="Deployed version" subtitle="Labels declare build provenance; runtime file contents and causation are not verified.">
+  return <Panel icon={Box} title="Deployed version" subtitle="Labels declare build provenance; runtime file contents and causation are not verified.">
     <dl className="context-list">
       <div><dt>Environment / service</dt><dd>{context.environment || 'unknown'} / {context.service}</dd></div>
       <div><dt>Release version</dt><dd>{context.version || 'unknown'}</dd></div>
@@ -34,7 +35,7 @@ export function DeploymentPicker({ repositoryId, value, onChange }: { repository
     queryFn: ({ pageParam }) => api<DeploymentPage>(`/deployments?repository_id=${encodeURIComponent(repositoryId)}&page=${pageParam}`),
     getNextPageParam: page => page.page * page.page_size < page.total ? page.page + 1 : undefined });
   const items = query.data?.pages.flatMap(page => page.items || []) || [];
-  return <div><label>Observed deployment <span className="optional">optional</span>
+  return <div className="deployment-picker"><label>Observed deployment <span className="optional">optional</span>
     <select aria-label="Observed deployment" disabled={!repositoryId || query.isPending} value={value}
       onChange={event => onChange(items.find(item => item.deployment_id === event.target.value) || null)}>
       <option value="">Use the configured repository source</option>

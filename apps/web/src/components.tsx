@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDownToLine, ArrowUpRight, Check, CircleDashed, FileSearch, LoaderCircle, Plus } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowUpRight, Ban, Check, CheckCircle2, Clock3, FileSearch, Info, LoaderCircle, Plus, Search, TriangleAlert, XCircle, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useId, type ReactNode } from 'react';
 import type { Incident } from './types';
@@ -8,7 +8,9 @@ export function duration(seconds: number) { return seconds < 60 ? `${Math.round(
 export const elapsed = (start: string, end?: string | null) => Math.max(0, (new Date(end || Date.now()).getTime() - new Date(start).getTime()) / 1000);
 
 export function Badge({ status }: { status: string }) {
-  return <span className={`badge ${status}`}><span className="status-dot" />{status.replaceAll('_', ' ')}</span>;
+  const icons: Record<string, LucideIcon> = { completed: CheckCircle2, resolved: CheckCircle2, running: LoaderCircle, investigating: Search, queued: Clock3, open: AlertCircle, acknowledged: Clock3, failed: XCircle, canceled: Ban, ignored: Ban };
+  const Icon = icons[status];
+  return <span className={`badge ${status}`}>{Icon ? <Icon aria-hidden="true" size={13} className={status === 'running' ? 'spin' : undefined} /> : <span className="status-dot" />}{status.replaceAll('_', ' ')}</span>;
 }
 
 export function ErrorNotice({ error }: { error: unknown }) {
@@ -16,8 +18,11 @@ export function ErrorNotice({ error }: { error: unknown }) {
   return <div className="notice error" role="alert"><AlertCircle size={17} /><span>{error instanceof Error ? error.message : String(error)}</span></div>;
 }
 
-export function Notice({ children }: { children: ReactNode }) { return <div className="notice" role="status"><CircleDashed size={17} /><span>{children}</span></div>; }
-export function Loading() { return <div className="loading" role="status" aria-label="Loading workspace"><LoaderCircle className="spin" size={22} /> Loading workspace…</div>; }
+export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'success' | 'warning' }) {
+  const Icon = tone === 'success' ? CheckCircle2 : tone === 'warning' ? TriangleAlert : Info;
+  return <div className={`notice ${tone}`} role="status"><Icon aria-hidden="true" size={18} /><div className="notice-content">{children}</div></div>;
+}
+export function Loading() { return <div className="loading" role="status" aria-label="Loading workspace"><span className="loading-icon"><LoaderCircle aria-hidden="true" className="spin" size={24} /></span><span>Loading workspace…</span></div>; }
 
 export function Empty({ title = 'No incidents yet', description = 'Run your first analysis to turn error logs into actionable evidence.', action = true }: { title?: string; description?: string; action?: boolean }) {
   return <div className="empty"><div className="empty-icon"><FileSearch size={29} strokeWidth={1.3} /></div><h3>{title}</h3><p>{description}</p>{action && <Link className="button primary" to="/incidents/new"><Plus size={16} />New analysis</Link>}</div>;
@@ -27,9 +32,9 @@ export function PageHeading({ eyebrow, title, description, action }: { eyebrow: 
   return <header className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</header>;
 }
 
-export function Panel({ title, subtitle, children, action, className = '' }: { title: string; subtitle?: string; children: ReactNode; action?: ReactNode; className?: string }) {
+export function Panel({ title, subtitle, children, action, className = '', icon: Icon }: { title: string; subtitle?: string; children: ReactNode; action?: ReactNode; className?: string; icon?: LucideIcon }) {
   const headingId = useId();
-  return <section className={`panel ${className}`} aria-labelledby={headingId}><div className="panel-heading"><div><h2 id={headingId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>{children}</section>;
+  return <section className={`panel ${className}`} aria-labelledby={headingId}><div className="panel-heading"><div className="panel-title-group">{Icon && <span className="panel-symbol"><Icon aria-hidden="true" size={18} /></span>}<div><h2 id={headingId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div>{action}</div>{children}</section>;
 }
 
 export function IncidentTable({ rows }: { rows: Incident[] }) {

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileText, GitCommitHorizontal } from 'lucide-react';
 import { Panel } from './components';
 import type { IncidentContext, IncidentGroup, LogEvent } from './types';
 
@@ -13,7 +14,7 @@ function EventGroup({ group, events, primary, onSourceRange }: {
   const ordered = chronological && comparable
     ? [...events].sort((a, b) => Date.parse(a.timestamp_utc!) - Date.parse(b.timestamp_utc!) || a.line_start - b.line_start)
     : events;
-  return <details className="incident-event-group" open={primary}>
+  return <details className={`incident-event-group${primary ? ' is-primary' : ''}`} open={primary}>
     <summary><code>{group.id}</code> <span className="engine-chip">{primary ? 'Primary group' : 'Context only'}</span>
       <span>{group.services.join(', ') || 'Unknown service'} · {events.length} events · {group.grouping_basis.replace('_', ' ')}</span>
     </summary>
@@ -40,7 +41,7 @@ function EventGroup({ group, events, primary, onSourceRange }: {
 
 export function IncidentTimeline({ context, onSourceRange }: { context: IncidentContext; onSourceRange: SourceRange }) {
   const eventMap = new Map(context.events.map(event => [event.id, event]));
-  return <Panel title="Incident timeline" subtitle="Diagnosis covers the primary group. Other groups are available for inspection.">
+  return <Panel icon={GitCommitHorizontal} title="Incident timeline" subtitle="Diagnosis covers the primary group. Other groups are available for inspection.">
     <div className="incident-timeline">
       <p>{context.selection_reason || 'Primary group has not been selected.'}</p>
       <p className="subtle">Shared identifiers and chronology establish association, not causation. Source order is the default.</p>
@@ -53,7 +54,7 @@ export function IncidentTimeline({ context, onSourceRange }: { context: Incident
 
 export function OriginalLogs({ text, range }: { text: string; range: [number, number] | null }) {
   const lines = range ? text.split('\n') : [];
-  return <Panel title="Original incident logs" subtitle="The input captured for this investigation">
+  return <Panel icon={FileText} title="Original incident logs" subtitle="The input captured for this investigation">
     <div id="incident-log-source" className="original-log-source" tabIndex={-1}>
       {range && <div className="source-range"><strong>Selected original lines {range[0]}–{range[1]}</strong>
         <pre className="code-block">{lines.slice(range[0] - 1, Math.min(range[1], range[0] + 199)).map((line, i) => `${range[0] + i}: ${line}`).join('\n')}</pre>

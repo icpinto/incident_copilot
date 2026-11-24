@@ -8,10 +8,11 @@ export const chartTheme = {
 };
 
 export const chartTooltip = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 8,
+  background: 'var(--panel-inset)',
+  border: '1px solid var(--border-hover)',
+  borderRadius: 10,
   color: 'var(--text)',
   fontSize: '0.875rem',
-  boxShadow: '0 8px 24px #0004',
+  padding: '10px 14px',
+  boxShadow: 'var(--shadow-raised)',
 };

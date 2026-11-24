@@ -1,5 +1,5 @@
 ﻿import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowUpRight, ChevronRight, FolderGit2, LayoutDashboard, Radio, Search, Settings2, Terminal } from 'lucide-react';
+import { Activity, ArrowUpRight, ChartNoAxesCombined, ChevronRight, CircleDot, FolderGit2, LayoutDashboard, Radio, Search, Settings2, Terminal } from 'lucide-react';
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Overview } from './pages/Overview';
@@ -53,8 +53,8 @@ export function App() {
       <div className="nav-section-label">WORKSPACE</div>
       <nav aria-label="Main navigation">
         <NavLink to="/" end><LayoutDashboard size={18} />Overview</NavLink>
-        <NavLink to="/intelligence"><LayoutDashboard size={18} />Error intelligence</NavLink>
-        <NavLink to="/issues"><Search size={18} />Issues</NavLink>
+        <NavLink to="/intelligence"><ChartNoAxesCombined size={18} />Error intelligence</NavLink>
+        <NavLink to="/issues"><CircleDot size={18} />Issues</NavLink>
         <NavLink to="/incidents"><Activity size={18} />Incidents</NavLink>
         <NavLink to="/repositories"><FolderGit2 size={18} />Repositories</NavLink>
         <NavLink to="/log-sources"><Radio size={18} />Log sources</NavLink>

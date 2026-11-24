@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
+import { BookOpen, Copy, LoaderCircle, Save } from 'lucide-react';
 import { api, json } from './api';
 import { ErrorNotice, Notice, Panel, time } from './components';
 import type { ActionEvent, ActionStatus, EvidenceItem, Hypothesis, NextCheck, RunbookSnapshot } from './types';
@@ -18,7 +19,7 @@ function CopyInstruction({ text }: { text: string }) {
   return <><button type="button" className="button" onClick={async () => {
     try { await navigator.clipboard.writeText(text); setMessage('Copied'); }
     catch { setMessage('Copy unavailable. Select and copy the instructions.'); }
-  }}>Copy instructions</button><span role="status">{message}</span></>;
+  }}><Copy aria-hidden="true" size={14} />Copy instructions</button><span role="status">{message}</span></>;
 }
 
 function ActionOutcome({ incidentId, actionId, kind, blocked = false }: {
@@ -55,23 +56,23 @@ function ActionOutcome({ incidentId, actionId, kind, blocked = false }: {
     {latest && <p>{latest.observations || 'No observations recorded'} <small>{time(latest.recorded_at)} - {latest.responder || 'Responder not specified'}</small></p>}
     <details><summary>Record outcome</summary>
       <p className="subtle">Responder-reported results are saved for handoff. The diagnosis stays unchanged.</p>
-      <form onSubmit={event => { event.preventDefault(); mutation.mutate(); }}>
+      <form aria-busy={mutation.isPending} onSubmit={event => { event.preventDefault(); mutation.mutate(); }}>
         <label>Status<select value={status} onChange={event => setStatus(event.target.value as ActionStatus)}>
           {(kind === 'check' ? checkStatuses : mitigationStatuses).map(value => <option key={value} value={value}>{readable(value)}</option>)}
         </select></label>
-        <label>Observations{needsObservations && ' (required)'}<textarea value={observations} required={needsObservations} maxLength={8000}
+        <label className="outcome-observations">Observations{needsObservations && ' (required)'}<textarea value={observations} required={needsObservations} maxLength={8000}
           onChange={event => setObservations(event.target.value)} placeholder={status === 'verified' ? 'Record the measurements, success condition and observation period.' : blocked ? 'Record results and how missing prerequisites were satisfied.' : 'What did you observe?'} /></label>
         <label>Responder (optional, self-reported)<input maxLength={120} value={responder} onChange={event => setResponder(event.target.value)} /></label>
         <label>Was this recommendation useful?<select value={useful} onChange={event => setUseful(event.target.value)}>
           <option value="">Not rated</option><option value="true">Useful</option><option value="false">Not useful</option>
         </select></label>
-        <button className="button" disabled={mutation.isPending || (needsObservations && !observations.trim())}>{mutation.isPending ? 'Saving...' : 'Save outcome'}</button>
+        <button className="button" disabled={mutation.isPending || (needsObservations && !observations.trim())}>{mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> : <Save aria-hidden="true" size={14} />}{mutation.isPending ? 'Saving...' : 'Save outcome'}</button>
         {mutation.isSuccess && <span role="status">Outcome saved</span>}
       </form>
     </details>
     <ErrorNotice error={query.error || mutation.error} />
     {!!history.length && <details><summary>Outcome history ({history.length})</summary><ol>{history.map(event => <li key={event.client_event_id}>
-      <strong>{readable(event.status)}</strong> ? {time(event.recorded_at)} - {event.responder || 'Responder not specified'}<p>{event.observations || 'No observations recorded'}</p>
+      <strong>{readable(event.status)}</strong> · {time(event.recorded_at)} · {event.responder || 'Responder not specified'}<p>{event.observations || 'No observations recorded'}</p>
     </li>)}</ol></details>}
   </section>;
 }
@@ -80,7 +81,7 @@ function Check({ check, incidentId }: { check: NextCheck; incidentId: string }) 
   return <>
     <p><strong>Where:</strong> {check.context}</p>
     {check.command && <pre className="code-block"><code>{check.command}</code></pre>}
-    {!!check.placeholders.length && <Notice>Resolve placeholders before use: {check.placeholders.join('; ')}</Notice>}
+    {!!check.placeholders.length && <Notice tone="warning">Resolve placeholders before use: {check.placeholders.join('; ')}</Notice>}
     <p><strong>Collect:</strong> {check.evidence_to_collect}</p>
     <h4>Expected results (predictions)</h4>
     <p><strong>Supports this hypothesis:</strong> {check.supports_hypothesis}</p>
@@ -117,7 +118,7 @@ export function HypothesisRecommendations({ hypothesis, incidentId, evidence }: 
       <h4>{mitigation.title}</h4><span className="engine-chip">{mitigation.runbook_ids.length ? 'Repository runbook' : 'Unreviewed model proposal'}</span>
       <p>{mitigation.intended_effect}</p>
       <h4>Prerequisites</h4><ul>{mitigation.prerequisites.map((value, i) => <li key={i}>{value}</li>)}</ul>
-      {!!mitigation.missing_prerequisites.length && <Notice><strong>Blocked: missing prerequisites</strong><ul>{mitigation.missing_prerequisites.map((value, i) => <li key={i}>{value}</li>)}</ul></Notice>}
+      {!!mitigation.missing_prerequisites.length && <Notice tone="warning"><strong>Blocked: missing prerequisites</strong><ul>{mitigation.missing_prerequisites.map((value, i) => <li key={i}>{value}</li>)}</ul></Notice>}
       <h4>Risks</h4><ul>{mitigation.risks.map((value, i) => <li key={i}>{value}</li>)}</ul>
       <p><strong>Affected services:</strong> {mitigation.affected_services.join(', ')}</p>
       {!!mitigation.runbook_ids.length && <p>Procedure sources: {mitigation.runbook_ids.map(id => <a className="evidence-link" key={id} href={`#runbook-${id}`} onClick={() => revealRunbook(id)}>{id}</a>)}</p>}
@@ -141,10 +142,10 @@ export function HypothesisRecommendations({ hypothesis, incidentId, evidence }: 
 
 export function RunbookSnapshots({ runbooks }: { runbooks: RunbookSnapshot[] }) {
   if (!runbooks.length) return null;
-  return <Panel title="Repository runbook snapshots" subtitle="Saved procedure content from the analysis snapshot.">
-    {runbooks.map(book => <details id={`runbook-${book.id}`} key={book.id}><summary>{book.title} - {book.file_path}</summary>
-      <p>Revision: {book.revision || 'unknown'} ? SHA-256: <code>{book.content_hash}</code></p>
-      {book.sections.map((section, i) => <section key={i} id={`runbook-${book.id}-${sectionId(section.heading)}`}><h4>{section.heading} ? lines {section.line_start}-{section.line_end}</h4>
+  return <Panel icon={BookOpen} className="runbook-panel" title="Repository runbook snapshots" subtitle="Saved procedure content from the analysis snapshot.">
+    {runbooks.map(book => <details className="runbook-snapshot" id={`runbook-${book.id}`} key={book.id}><summary>{book.title} - {book.file_path}</summary>
+      <p>Revision: {book.revision || 'unknown'} · SHA-256: <code>{book.content_hash}</code></p>
+      {book.sections.map((section, i) => <section key={i} id={`runbook-${book.id}-${sectionId(section.heading)}`}><h4>{section.heading} · lines {section.line_start}-{section.line_end}</h4>
         <pre className="code-block"><code>{section.content}</code></pre></section>)}
     </details>)}
   </Panel>;

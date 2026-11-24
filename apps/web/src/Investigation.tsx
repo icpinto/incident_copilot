@@ -1,3 +1,4 @@
+import { BrainCircuit, ScanSearch } from 'lucide-react';
 import { Panel } from './components';
 import type { EvidenceItem, InvestigationEvent, InvestigationSummary, ReasoningSummary } from './types';
 
@@ -11,7 +12,7 @@ export function Investigation({ summary, evidence, events }: {
 }) {
   if (!summary && !evidence.length && !events.length) return null;
   const knownIds = new Set(evidence.map(item => item.id));
-  return <Panel title="Evidence investigation" subtitle="Citations identify collected observations. Source relationships and runtime association alone do not establish causation.">
+  return <Panel icon={ScanSearch} title="Evidence investigation" subtitle="Citations identify collected observations. Source relationships and runtime association alone do not establish causation.">
     {summary && <>
       <dl className="investigation-summary">
         <div><dt>Status</dt><dd>{summary.incomplete ? 'Incomplete' : 'Complete'}</dd></div>
@@ -41,7 +42,7 @@ export function Investigation({ summary, evidence, events }: {
 
 export function ReasoningDetails({ summary }: { summary?: ReasoningSummary | null }) {
   if (!summary) return null;
-  return <Panel title="Diagnosis reasoning" subtitle="Causal explanations are assessed against collected evidence.">
+  return <Panel icon={BrainCircuit} title="Diagnosis reasoning" subtitle="Causal explanations are assessed against collected evidence.">
     <dl className="investigation-summary">
       <div><dt>Approach</dt><dd>{readable(summary.mode)}</dd></div>
       <div><dt>Evidence review</dt><dd>{readable(summary.review_status)}</dd></div>
