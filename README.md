@@ -6,66 +6,70 @@ Read the [architecture handbook](docs/architecture.md) for the complete implemen
 design: Temporal stages, both LangGraph flows, fixed and ReAct-style patterns,
 evidence tools, memory/context engineering, NeMo Guardrails, LiteLLM, and Langfuse.
 
-This version intentionally **does not patch code**. It does:
+Incident Copilot turns supplied error logs, repository source, and optional runtime
+observations into cited hypotheses and practical next checks. Responders perform
+checks and mitigations manually; the application does not patch code, execute
+mitigations, or deploy changes.
 
-1. Ingest user-provided error logs
-2. Parse a local or manually synced GitHub monorepo and docker-compose metadata
-3. Correlate logs to likely services/files/functions
-4. Run optional deeper AST analysis on top candidates
-5. Use a bounded LangGraph reasoning step to produce a ranked diagnosis report
-6. Orchestrate the flow with Temporal
+## Implementation overview
 
-## Why this shape
+The **React dashboard** is served by **FastAPI**. A shared **SQLite control store**
+persists repository profiles, incident inputs and results, immutable settings revisions,
+and issue triage history. Dashboard submissions are saved before dispatch to
+**Temporal**, which schedules the Python worker and handles activity retries and
+recovery. Progress and cancellation remain available after leaving the dashboard;
+an unavailable Temporal service leaves submissions queued for automatic dispatch.
 
-The system is split into two clear layers:
+Each dashboard investigation runs through four stages:
 
-- **Temporal**: durable outer workflow, retries, activity boundaries
-- **LangGraph**: bounded diagnosis reasoning over curated evidence
+| Stage | Implemented behavior |
+| --- | --- |
+| Indexing | Validate worker access, map Compose services, and build an isolated SQLite source index. The optional `parsing` extra enables Tree-sitter with parser fallbacks. |
+| Correlating | Parse errors and stack frames, build an incident timeline, select the primary trace/request group, and deterministically rank candidate services, files, and symbols. |
+| Analyzing | Inspect the strongest candidates with deeper language-aware analysis and collect available static code graph context. |
+| Reasoning | Run the selected LangGraph flow, validate its output, and save the diagnosis with JSON and Markdown report artifacts. |
 
-The diagnosis pipeline is:
+**Temporal controls durable execution; LangGraph controls diagnosis reasoning.** The
+default fixed flow reasons over curated evidence. Optional
+[iterative investigation](docs/agentic-investigation.md) lets the model request
+additional read-only source and, when configured, runtime evidence within enforced
+round, request, and time budgets. Checkpoints preserve completed investigation work
+and consumed budgets across worker retries. Model failures retain usable prior
+assessments where available, or fall back to deterministic diagnosis; reports identify
+the actual engine and limitations. Optional
+[structured reasoning and selective review](docs/structured-reasoning.md) apply to both
+flows; baseline reasoning remains the default.
 
-1. Service map extraction
-2. Fast repo indexing
-3. Log correlation and candidate ranking
-4. Conditional deep analysis
-5. LLM-assisted hypothesis ranking
-6. Markdown / JSON diagnosis report
+The implementation also includes:
 
-Optional [structured causal reasoning and selective review](docs/structured-reasoning.md)
-apply to both diagnosis modes. Baseline remains the default until paired human evaluation
-supports promotion.
+- **Repository context:** local directories and manually synced GitHub profiles,
+  worker-side validation, and retained source revisions. Managed
+  [GitNexus code graphs](docs/code-graph.md) are enabled by default and provide bounded
+  static callers and callees when a matching graph is available.
+- **Collected evidence:** a separately deployed Docker collector maps Compose projects
+  to repositories and submits recurring errors. Opt-in
+  [deployed-version linking](docs/deployed-versions.md) selects the declared running
+  Git commit. [Runtime evidence](docs/runtime-evidence.md) can add bounded logs,
+  resource observations, dependency health, and optional Prometheus/Tempo data.
+- **Responder handoff:** [incident timelines](docs/incident-timeline.md), cited
+  [recommendations](docs/actionable-recommendations.md), evidence gaps, distinguishing
+  checks, repository runbooks, mitigation prerequisites, recovery verification, and
+  recorded manual outcomes. [Error intelligence and Issues](docs/error-intelligence.md)
+  track captured occurrences independently of investigation completion.
+- **Model controls and observability:** LiteLLM is the default model gateway through
+  the OpenAI-compatible adapter; direct Ollama is also supported. Optional
+  [NeMo Guardrails checks](docs/guardrails.md) support observation and enforcement,
+  and [Langfuse tracing](docs/langfuse.md) records investigation and model-call activity
+  when configured.
 
-Reports separate raw localization strength from diagnosis confidence and allow an
-explicit insufficient-evidence outcome. Diagnosis probabilities remain unavailable
-pending labeled calibration data. See [confidence semantics and human review](docs/diagnosis-confidence.md).
+Reports distinguish raw localization strength from diagnosis confidence and can
+explicitly return **insufficient evidence**. Localization scores are not probabilities;
+diagnosis probabilities remain unavailable pending labeled calibration data. Static
+relationships and shared trace identifiers establish context, not proven causation.
+See [confidence semantics and human review](docs/diagnosis-confidence.md).
 
-New reports provide [actionable recommendations](docs/actionable-recommendations.md): cited evidence,
-evidence gaps, distinguishing checks, repository runbooks, mitigation prerequisites and
-recovery verification. The dashboard records manual responder outcomes for handoffs.
-
-New analyses build an [incident timeline](docs/incident-timeline.md) before ranking.
-Explicit trace/request identifiers associate events; one primary group supplies diagnosis
-evidence, while other groups remain visible in the dashboard and report exports.
-
-## Current status
-
-Optional [NeMo Guardrails policy checks](docs/guardrails.md) support observation and
-enforcement for prompt injection and credential disclosure in both diagnosis modes.
-
-This repository is a working scaffold and MVP:
-
-- deterministic localization implemented
-- local index implemented with SQLite
-- Temporal workflow and worker included
-- LangGraph diagnosis graph included
-- local LLM adapters included (Ollama and OpenAI-compatible endpoints)
-- LiteLLM Gateway as the default LLM route through the existing OpenAI-compatible adapter
-- Tree-sitter syntax-tree indexing via the optional `parsing` extra, with safe fallback
-- React operations dashboard with saved incident history, evidence views, and configuration
-- durable dashboard submissions and progress tracking through Temporal
-- repository profiles, worker-side path validation, and isolated indexes for each dashboard run
-
-It is designed to be extended, not treated as finished enterprise software.
+This remains a local MVP without user authentication or tenant isolation. See the
+[architecture handbook](docs/architecture.md) for subsystem details and limitations.
 
 ## Dashboard quick start
 
@@ -90,6 +94,114 @@ is available at http://localhost:8233.
 3. Open **Configuration** to review the default LiteLLM endpoint/model alias and tune analysis limits.
 4. Start **New analysis**, choose a repository, and paste or load error logs.
 5. Follow activity stages, inspect hypotheses and source evidence, and export the report.
+
+## Copilot dashboard tour
+
+The sidebar has seven workspace sections. **Overview** and **Incidents** describe
+investigation runs; **Error intelligence** and **Issues** describe recurring errors in
+captured inputs. Use the top-bar search to find incidents and the connection indicator
+to check whether the local API is reachable.
+
+### Overview
+
+Start here for total incidents, completed analyses, active investigations, and average
+diagnosis time. The page shows submission activity over the last 14 days, likely-service
+distribution from completed reports, and recent investigations. Open a recent incident
+to inspect its report, or choose **New analysis** to begin. An empty workspace shows
+onboarding guidance; these metrics come from saved history.
+
+### Error intelligence
+
+Use this page to spot frequent or growing errors before choosing what to investigate.
+It shows occurrence trends, active/new/reopened issue counts, and hotspots by service,
+repository, error class, file, or function. Filters narrow the window and context;
+selecting a chart day or hotspot opens the matching **Issues** view.
+
+Counts describe captured uploads and collector inputs, not production-wide error rates
+or user impact. Exact duplicate dashboard uploads and reruns share occurrences, and
+older investigation history is not backfilled. See the
+[counting and triage guide](docs/error-intelligence.md) for coverage and timestamp rules.
+
+### Issues
+
+Issues group recurring errors so ownership and resolution can outlive one investigation.
+Filter the list, then open an issue to review occurrences, linked investigations, and
+activity history. Assign a person or team, update its title and status, and save a
+resolution note. Statuses include **open**, **acknowledged**, **investigating**,
+**resolved**, and **ignored**; completing a diagnosis does not resolve the issue.
+Merge related issues within a repository or split selected occurrences to correct
+grouping.
+
+### Incidents
+
+This is the saved investigation history. Search by title, ID, or diagnosis, filter by
+status and repository, or expand **More filters** for service, error class, and date
+range. Each row shows its execution status, repository/service, actual diagnosis
+engine, and creation time. Open a row for the four investigation tabs described below.
+
+### Repositories
+
+Add a **Local directory** or **GitHub** profile and an optional Compose file. Local
+paths refer to the worker's filesystem; **Validate access** checks that connection.
+GitHub profiles track a branch and use **Check & sync** to download source manually;
+private repositories require read access. Repository cards show validation, indexed
+files/symbols, services, sync revision, and code graph readiness with Prepare/Refresh
+actions. Edit profiles or archive unused ones while retaining existing incident history.
+See [repository setup](docs/repositories.md).
+
+### Log sources
+
+After starting the [standalone collector](#standalone-docker-log-collector), this page
+lists discovered Compose projects, services, and last-seen activity. Choose
+**Configure**, map a project to an active repository, set its environment, enable
+**Collect errors**, and save. Expand **Version matching** to select services whose
+declared deployed Git commits should supply source context; this requires image revision
+labels. **Source details** exposes collector identity and observed versions. The page
+shows **Waiting for collector** until discovery data arrives.
+
+### Configuration
+
+Review model provider/endpoints, diagnosis reasoning mode, candidate limits, code graph
+settings, iterative retrieval budgets, and guardrails. Temporal and application/storage
+settings are also editable here. **Connection checks** test the saved configuration's
+Temporal, language model, and storage connections; save edits before testing.
+
+Model and analysis changes apply to new runs. Infrastructure settings show
+**Restart required** and need both API and worker restarted after active runs finish.
+Saved overrides take precedence over environment values; reset a field to restore its
+environment or built-in default. See [configuration and persistence](#configuration-and-persistence).
+
+### Start a new analysis
+
+Choose **New analysis** from the sidebar or an investigation page. Select a repository,
+optionally choose an observed deployed version, and add a title or service hint. Paste
+logs or use **Load file** (up to 2 MB), then choose **Run analysis**. GitHub profiles
+need a synced revision unless an observed deployment is selected. The saved run
+continues in Temporal after you close the page.
+
+### Investigation tabs
+
+Each incident has four tabs. Available content grows as the worker completes stages;
+optional graph, runtime, and tracing panels depend on collected evidence and configuration.
+
+| Tab | What to inspect and do |
+| --- | --- |
+| **Diagnosis** | Review the diagnosis outcome, tentative hypotheses, supporting and contrary citations, missing evidence, and next checks. Available recommendations include saved runbooks, mitigation prerequisites, rollback steps, and recovery criteria. Record manual check and mitigation outcomes for handoffs. Evidence citations open the corresponding source evidence. |
+| **Source evidence (N)** | Compare candidate localization scores, select files/symbols, read snippets and ranking reasons, and expand available deep-analysis details. Inspect retrieved evidence, iterative investigation actions, static callers/callees, and runtime observations with their collection limitations. `N` is the source-candidate count, not the total evidence count. |
+| **Logs & trace** | Read original input, parsed stack frames, service/exception labels, and the incident timeline. Inspect trace/request groups and jump from an event to its original log lines. The primary group supplies diagnosis evidence; other groups remain available as context. Timestamp ordering is available when timestamps are comparable. |
+| **Run details** | Inspect durable workflow stages, retries and recorded timings, incident/workflow identifiers, submission/completion times, and the captured configuration revision. Use **Open in Langfuse** when a trace link is available. |
+
+The incident header offers JSON/Markdown exports when a report exists, **Cancel
+analysis** for active runs, and **Rerun** when the run is no longer active. A rerun
+creates a separate incident using the current active configuration; retained GitHub
+and deployed-version source revisions remain pinned.
+
+A typical responder path is **Repositories → Configuration → New analysis → Diagnosis
+→ Source evidence → Logs & trace**. Perform the proposed checks manually, record
+observations, then use **Issues** to update ownership or resolution. Return to
+**Error intelligence** to review recurrence across captured inputs.
+
+## Dashboard operations
 
 ### Standalone Docker log collector
 
@@ -127,15 +239,6 @@ Code graph evidence is enabled by default. The application prepares each reposit
 graph automatically, waiting up to five minutes before falling back to normal diagnosis.
 Use a clean, committed checkout. **Repositories** shows graph status and provides
 Prepare/Refresh actions; no additional Docker commands or token setup are required.
-
-The dashboard starts empty and calculates all metrics from saved incidents. LLM
-failures fall back to deterministic diagnosis, with the actual engine shown in the report.
-
-**Error intelligence** and **Issues** track recurring error occurrences from new
-dashboard uploads, independently of diagnosis completion. Explore hotspots and
-trends, assign owners, resolve issues, and correct grouping with merge/split actions.
-Exact duplicate uploads and reruns share occurrences; saved history is not backfilled.
-See [uploaded error intelligence, counting, and triage](docs/error-intelligence.md).
 
 ### Run the dashboard on the host
 
@@ -253,8 +356,8 @@ See [agentic investigation](docs/agentic-investigation.md) for limits, checkpoin
 
 ### 2) Start Temporal + worker locally
 
-A dev compose file includes Temporal, Postgres, Temporal UI, LiteLLM Gateway, and
-the Incident Copilot API and worker. Configure `LITELLM_MASTER_KEY` first:
+A dev compose file includes Temporal, Postgres, Temporal UI, LiteLLM Gateway, managed
+GitNexus, and the Incident Copilot API and worker. Configure `LITELLM_MASTER_KEY` first:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
@@ -324,6 +427,9 @@ Read-only source mounts and persistent external graph storage are retained. See
 - `apps/cli`: CLI entrypoint
 - `apps/api`: FastAPI entrypoint
 - `apps/worker`: Temporal worker entrypoint
+- `apps/web`: React operations dashboard
+- `collector`: standalone Docker log collector and runtime evidence adapters
+- `src/incident_copilot/dashboard`: dashboard API, control store, repository sources, and issue tracking
 - `src/incident_copilot/indexing`: service map and repo indexing
 - `src/incident_copilot/correlation`: log parsing and candidate ranking
 - `src/incident_copilot/analysis`: deeper language-aware analysis
