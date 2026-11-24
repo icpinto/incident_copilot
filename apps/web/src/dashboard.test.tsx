@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { Incidents, NewIncident, IncidentDetail } from './pages/Incidents';
@@ -24,6 +24,63 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
 }
 
 describe('dashboard workflows', () => {
+  it('shows the top three localization candidates and expands or collapses with the keyboard', async () => {
+    const candidates = Array.from({ length: 5 }, (_, i) => ({ ...run.report!.candidates[0],
+      file_path: `services/payments/candidate-${i + 1}.py`, score: 50 - i,
+      reasons: [`Matching reason ${i + 1}`] }));
+    mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    const panel = await screen.findByRole('region', { name: 'Localization strength' });
+    const toggle = within(panel).getByRole('button', { name: 'Show all 5 locations' });
+    const list = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    const locations = () => Array.from(list.children).map(item => item.querySelector('strong')!.textContent);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(locations()).toEqual(candidates.slice(0, 3).map(c => `${c.file_path}: ${c.score}`));
+    expect(within(panel).getByText('Matching reason 3')).toBeVisible();
+    expect(within(panel).queryByText('Matching reason 4')).not.toBeInTheDocument();
+    toggle.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(toggle).toHaveAccessibleName('Show top 3');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(locations()).toEqual(candidates.map(c => `${c.file_path}: ${c.score}`));
+    expect(within(panel).getByText('Matching reason 5')).toBeVisible();
+    await userEvent.keyboard(' ');
+    expect(toggle).toHaveAccessibleName('Show all 5 locations');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(list.children).toHaveLength(3);
+  });
+
+  it.each([0, 1, 2, 3])('shows %i localization candidates without an expansion control', async count => {
+    const candidates = Array.from({ length: count }, (_, i) => ({ ...run.report!.candidates[0], file_path: `candidate-${i}.py` }));
+    mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
+    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
+    const panel = await screen.findByRole('region', { name: 'Localization strength' });
+    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
+    if (count) expect(within(panel).getAllByText(/candidate-\d\.py: 24/)).toHaveLength(count);
+    else expect(within(panel).getByText('No source location identified.')).toBeVisible();
+  });
+
+  it('preserves expanded locations during refresh and resets when opening another incident', async () => {
+    const candidates = Array.from({ length: 5 }, (_, i) => ({ ...run.report!.candidates[0], file_path: `candidate-${i}.py` }));
+    const incident = { ...run, report: { ...run.report!, candidates } };
+    mockFetch(url => ({ ...incident, id: url.split('/').at(-1) }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/incidents/run-123']}>
+      <Link to="/incidents/run-456">Open another incident</Link>
+      <Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>
+    </MemoryRouter></QueryClientProvider>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Show all 5 locations' }));
+    await act(async () => { await client.refetchQueries({ queryKey: ['incident', 'run-123'] }); });
+    expect(screen.getByRole('button', { name: 'Show top 3' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('candidate-4.py: 24')).toBeVisible();
+    await userEvent.click(screen.getByRole('link', { name: 'Open another incident' }));
+    expect(await screen.findByRole('button', { name: 'Show all 5 locations' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('candidate-4.py: 24')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Source evidence (5)' }));
+    expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(4);
+    expect(screen.getByRole('button', { name: /candidate-4.py/ })).toBeVisible();
+  });
+
   it('shows graph readiness and queues a refresh through the repository API', async () => {
     const writes: string[] = [];
     mockFetch((url, init) => {
