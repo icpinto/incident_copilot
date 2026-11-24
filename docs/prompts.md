@@ -13,6 +13,12 @@ confidence between zero and one, and unique consecutive ranks starting at one.
 Ranks are sorted before reporting. Malformed JSON, missing fields, extra fields,
 and invalid types trigger deterministic diagnosis.
 
+The generation field named `confidence` is an uncalibrated model self-assessment.
+Report conversion moves it to `model_score` and returns `confidence: null` with
+`confidence_status: unavailable`; see [confidence semantics](diagnosis-confidence.md).
+If iterative investigation already has an accepted assessment, a later invalid
+response preserves that assessment and marks the investigation incomplete.
+
 Reports include an optional `fallback_reason`: `no_candidates`,
 `llm_request_failed`, or `llm_invalid_response`. Request and validation failures
 are logged without exception text or model output, which can contain secrets.
@@ -24,3 +30,7 @@ shows these errors above the incident views, and JSON/Markdown exports preserve 
 Rejected values, unknown field names, and raw exception context are not included.
 
 See [structured reasoning, selective review and promotion gates](structured-reasoning.md) for the optional reasoning policies.
+
+For prompt composition, evidence priorities, clipping, memory, and instruction
+boundaries, see [context engineering](architecture/memory-and-context.md#context-construction)
+and the [agent harness](architecture/agent-harness.md).

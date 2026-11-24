@@ -2,6 +2,10 @@
 
 A diagnosis-first incident copilot for containerized monorepos.
 
+Read the [architecture handbook](docs/architecture.md) for the complete implemented
+design: Temporal stages, both LangGraph flows, fixed and ReAct-style patterns,
+evidence tools, memory/context engineering, NeMo Guardrails, LiteLLM, and Langfuse.
+
 This version intentionally **does not patch code**. It does:
 
 1. Ingest user-provided error logs

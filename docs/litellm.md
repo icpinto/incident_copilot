@@ -99,10 +99,14 @@ parameter errors (`drop_params: false`); application-side response validation an
 deterministic fallback remain active. See LiteLLM's
 [structured-output support](https://docs.litellm.ai/docs/completion/json_mode).
 
-Gateway retries default to zero, with a 110-second request timeout below the
-application's 120-second HTTP timeout. Temporal activity retries and the bounded
-investigation deadline remain in effect. When enabling gateway retries or model
-fallbacks, keep their total duration within those application limits.
+Gateway retries default to zero, with a 300-second router timeout below both model
+adapters' 315-second HTTP client timeout. Iterative investigation has a separate
+180-second deadline and can cancel a wait earlier. Enhanced single-pass generation
+and review share a 315-second deadline, with review capped at 60 seconds; baseline
+has no additional shared wall-clock timeout wrapper. Temporal activity retries and
+timeouts remain outer execution boundaries. When enabling gateway retries or model
+fallbacks, account for all these limits. See the
+[model request architecture](architecture/agent-harness.md#litellm-gateway-and-adapters).
 
 ## External gateway or host processes
 

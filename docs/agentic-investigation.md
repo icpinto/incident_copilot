@@ -2,11 +2,15 @@
 
 Incident Copilot can optionally run an iterative investigation inside LangGraph. Initial indexing, candidate localization, and candidate scores remain deterministic. The model assesses provisional explanations, requests additional evidence, and revises its diagnosis. Every request is validated and executed by application code against the configured repository and index.
 
+For the implemented design, see the [architecture handbook](architecture.md),
+[node/state contracts](architecture/langgraph-and-patterns.md), and
+[memory/context architecture](architecture/memory-and-context.md).
+
 Enable **Iterative evidence retrieval** in Configuration, or set `IC_AGENTIC_ENABLED=true`. The feature defaults to disabled, preserving the existing single-pass diagnosis. Both Ollama and OpenAI-compatible providers use validated JSON decisions; provider-native tool calling is not required. Install the optional dependencies with `pip install -e ".[llm,agentic]"` to enable the LangGraph runtime and SQLite checkpointer. Missing dependencies produce an explicit fallback reason.
 
 ## Evidence and stopping
 
-The available operations find indexed symbols, read bounded source ranges, search literal source text, retrieve file metadata, and look up GitNexus callers or callees. The symbol index records definitions and ranges; it is not a full data-flow analysis. GitNexus must be configured and indexed separately to provide call relationships. An unavailable or partial graph is recorded with its limitations.
+The available operations find indexed symbols, read bounded source ranges, search literal source text, retrieve file metadata, and look up GitNexus callers or callees. The symbol index records definitions and ranges; it is not a full data-flow analysis. Managed GitNexus is enabled by default and prepares a matching repository graph automatically; external mode requires an already prepared service. An unavailable or partial graph is recorded with its limitations. See [code graph management](code-graph.md).
 
 The investigator can follow a newly discovered helper, inspect relevant test assertions, compare competing explanations, or search when initial localization finds no candidates. Each request identifies the evidence question it addresses. Reports show citations, retrieved source, investigation actions, and unresolved evidence gaps.
 
