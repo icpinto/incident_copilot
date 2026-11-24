@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { Incidents, NewIncident, IncidentDetail } from './pages/Incidents';
@@ -24,72 +24,26 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
 }
 
 describe('dashboard workflows', () => {
-  it('starts localization collapsed and reveals only the top three candidates when expanded', async () => {
-    const candidates = Array.from({ length: 5 }, (_, i) => ({ ...run.report!.candidates[0],
-      file_path: `services/payments/candidate-${i + 1}.py`, score: 50 - i,
-      reasons: [`Matching reason ${i + 1}`] }));
-    mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
-    view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
-    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
-    const panel = heading.closest('details')!;
-    const toggle = heading.closest('summary')!;
-    const list = panel.querySelector('ul')!;
-    const locations = () => Array.from(list.children).map(item => item.querySelector('strong')!.textContent);
-    expect(panel).not.toHaveAttribute('open');
-    expect(list).not.toBeVisible();
-    expect(locations()).toEqual(candidates.slice(0, 3).map(c => `${c.file_path}: ${c.score}`));
-    expect(within(panel).getByText('Matching reason 3')).not.toBeVisible();
-    expect(within(panel).queryByText('Matching reason 4')).not.toBeInTheDocument();
-    expect(within(panel).queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
-    toggle.focus();
-    expect(toggle).toHaveFocus();
-    await userEvent.click(toggle);
-    expect(panel).toHaveAttribute('open');
-    expect(list).toBeVisible();
-    expect(within(panel).getByText('Matching reason 3')).toBeVisible();
-    expect(locations()).toEqual(candidates.slice(0, 3).map(c => `${c.file_path}: ${c.score}`));
-    expect(within(panel).queryByText('Matching reason 4')).not.toBeInTheDocument();
-    await userEvent.click(toggle);
-    expect(panel).not.toHaveAttribute('open');
-    expect(list).not.toBeVisible();
-    expect(list.children).toHaveLength(3);
-  });
-
-  it.each([0, 1, 2, 3])('keeps %i localization candidates behind the section disclosure', async count => {
+  it.each([0, 1, 2, 3, 5])('keeps localization for %i candidates in Source evidence only', async count => {
     const candidates = Array.from({ length: count }, (_, i) => ({ ...run.report!.candidates[0], file_path: `candidate-${i}.py` }));
     mockFetch(() => ({ ...run, report: { ...run.report, candidates } }));
     view(<Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>, '/incidents/run-123');
-    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
-    const panel = heading.closest('details')!;
-    expect(panel).not.toHaveAttribute('open');
-    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
-    await userEvent.click(heading.closest('summary')!);
-    expect(panel).toHaveAttribute('open');
-    if (count) expect(within(panel).getAllByText(/candidate-\d\.py: 24/)).toHaveLength(count);
-    else expect(within(panel).getByText('No source location identified.')).toBeVisible();
-  });
+    await screen.findByText('Gateway timed out');
+    expect(screen.queryByRole('heading', { name: 'Localization strength' })).not.toBeInTheDocument();
+    expect(screen.queryByText('stack frame match')).not.toBeInTheDocument();
 
-  it('preserves expanded locations during refresh and resets when opening another incident', async () => {
-    const candidates = Array.from({ length: 5 }, (_, i) => ({ ...run.report!.candidates[0], file_path: `candidate-${i}.py` }));
-    const incident = { ...run, report: { ...run.report!, candidates } };
-    mockFetch(url => ({ ...incident, id: url.split('/').at(-1) }));
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/incidents/run-123']}>
-      <Link to="/incidents/run-456">Open another incident</Link>
-      <Routes><Route path="/incidents/:id" element={<IncidentDetail />} /></Routes>
-    </MemoryRouter></QueryClientProvider>);
-    const heading = await screen.findByRole('heading', { name: 'Localization strength' });
-    await userEvent.click(heading.closest('summary')!);
-    await act(async () => { await client.refetchQueries({ queryKey: ['incident', 'run-123'] }); });
-    expect(screen.getByRole('heading', { name: 'Localization strength' }).closest('details')).toHaveAttribute('open');
-    expect(screen.getByText('candidate-2.py: 24')).toBeVisible();
-    await userEvent.click(screen.getByRole('link', { name: 'Open another incident' }));
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Localization strength' }).closest('details')).not.toHaveAttribute('open'));
-    expect(screen.getByText('candidate-2.py: 24')).not.toBeVisible();
-    expect(screen.queryByText('candidate-4.py: 24')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Source evidence (5)' }));
-    expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(4);
-    expect(screen.getByRole('button', { name: /candidate-4.py/ })).toBeVisible();
+    await userEvent.click(screen.getByRole('tab', { name: `Source evidence (${count})` }));
+    if (count) {
+      expect(screen.getByRole('heading', { name: 'Localization strength' })).toBeVisible();
+      expect(screen.queryAllByRole('button', { pressed: false })).toHaveLength(count - 1);
+      await userEvent.click(screen.getByRole('button', { name: new RegExp(`candidate-${count - 1}\\.py`) }));
+      expect(screen.getByRole('heading', { name: `candidate-${count - 1}.py` })).toBeVisible();
+      expect(screen.getByText('stack frame match')).toBeVisible();
+    } else {
+      expect(screen.getByText('No source candidates yet')).toBeVisible();
+    }
+    await userEvent.click(screen.getByRole('tab', { name: 'Diagnosis' }));
+    expect(screen.queryByRole('heading', { name: 'Localization strength' })).not.toBeInTheDocument();
   });
 
   it('shows graph readiness and queues a refresh through the repository API', async () => {
@@ -227,7 +181,7 @@ describe('dashboard workflows', () => {
     expect(screen.getByText('Runtime input is missing.')).toBeInTheDocument();
     expect(screen.getByText('Capture the failing input')).toBeInTheDocument();
     expect(screen.getByText('Gateway timed out')).toBeInTheDocument();
-    expect(screen.getByText('api/main.py: 24')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Localization strength' })).not.toBeInTheDocument();
     expect(screen.queryByText('80%')).not.toBeInTheDocument();
     expect(container.querySelector('.confidence-track')).toBeNull();
   });

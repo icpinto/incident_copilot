@@ -103,10 +103,6 @@ main > *, .page-heading > div, .panel-heading > div, .detail-layout > *, .settin
 .panel > p { margin: 0 24px 16px; overflow-wrap: anywhere; }
 .panel > ul { margin: 0 24px 24px; padding-left: 20px; color: var(--muted); overflow-wrap: anywhere; }
 .panel > ul > li { margin-bottom: 12px; }
-.localization-strength > summary { cursor: pointer; align-items: center; }
-.localization-strength > summary::marker { content: ''; }
-.localization-strength > summary::-webkit-details-marker { display: none; }
-.localization-strength[open] > summary > svg { transform: rotate(180deg); }
 .panel > .notice { margin: 0 24px 24px; }
 .status-dot { display: inline-block; flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge, .engine-chip, .settings-mode { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 5px; color: #c1c6cf; background: var(--surface); font-size: var(--text-xs); line-height: 1.5; }
